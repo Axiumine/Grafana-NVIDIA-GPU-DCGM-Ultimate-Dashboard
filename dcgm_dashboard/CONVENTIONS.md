@@ -228,13 +228,14 @@ across any row of tiles.
 11. **`lib.override_by_regex(pattern, ...)` needs `pattern` delimited (Grafana's `byRegexp`,
     Grafana 13.2.2) -- `lib.override_by_regex` does this for you, do not hand-roll a
     `{"matcher": {"id": "byRegexp", ...}}` override yourself.** A bare pattern string is
-    compiled as the *literal*, fully-anchored expression `^<pattern>$`, not as "pattern found
-    in the display name" -- e.g. `"^Free"` never matches a real series name "Free · gpu-node-01
-    GPU0" (it would only match the 5-character string `^Free`), so the override silently
+    compiled fully anchored, as `^<pattern>$`, not as "pattern found in the display name" --
+    e.g. `"^Free"` never matches a real series name "Free · gpu-node-01 GPU0" (it would only
+    match a display name that is exactly `Free`), so the override silently
     becomes a no-op: no error anywhere, the JSON is schema-valid, `check_queries.py` still
     returns data, and only a rendered panel shows the bug. `lib.override_by_regex` wraps
-    every pattern in `/…/` itself, so every call site gets this fixed at the one source; do
-    not "fix" a symptom by hand-adding slashes to a pattern string passed into it.
+    every bare pattern in `/…/` itself, so every call site gets this fixed at the one source; do
+    not "fix" a symptom by hand-adding slashes to a pattern string passed into it (an
+    already-delimited `/pattern/flags` is passed through, for when you need a flag like `i`).
 12. **Hot-reloading `custom-counters.csv` can leave two label-set "generations" of the same
     metric in Prometheus for a while.** If you add or remove CSV fields on a live exporter,
     the extra/missing `label`-type fields make Prometheus treat the pre- and post-reload

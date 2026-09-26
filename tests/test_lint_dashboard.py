@@ -171,7 +171,9 @@ def test_check_units_validates_against_units_values_not_keys(monkeypatch):
         ("/", True),  # too short to hold both delimiters
         ("ab", True),  # bare pattern, no delimiters
         ("/ab", True),  # opening delimiter only
+        ("/ab/x", True),  # starts with '/' but Grafana can't parse it -> matcher disabled
         ("/ab/", False),  # correctly delimited
+        ("/ab/i", False),  # delimited, with a flag
     ],
 )
 def test_check_byregexp_delimited_requires_slash_delimiters(options, expect_error):

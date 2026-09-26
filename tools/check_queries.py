@@ -76,6 +76,8 @@ def fetch_a_real_gpu_uuid(prom_url: str) -> str:
         values = body.get("data") or []
         if values:
             return values[0]
+    except urllib.error.HTTPError as e:
+        e.close()  # see classify()
     except Exception:
         pass
     return ".*"  # best-effort fallback; equality checks may then read EMPTY honestly
@@ -95,8 +97,11 @@ def label_values(prom_url: str, label: str, match_expr: str) -> list:
         with urllib.request.urlopen(url, timeout=10) as resp:
             body = json.loads(resp.read().decode("utf-8"))
         return body.get("data") or []
+    except urllib.error.HTTPError as e:
+        e.close()  # see classify()
     except Exception:
-        return []
+        pass
+    return []
 
 
 def fetch_dcgm_job_instance_regex(prom_url: str) -> tuple:

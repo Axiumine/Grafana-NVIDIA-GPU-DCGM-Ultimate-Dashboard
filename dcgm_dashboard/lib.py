@@ -22,6 +22,7 @@ See dcgm_dashboard/CONVENTIONS.md for how to write a row module.
 
 import copy
 import dataclasses
+import re
 import string
 from collections.abc import Sequence
 from typing import Any
@@ -328,19 +329,33 @@ def override_by_name(field_name: str, properties: Sequence[tuple[str, Any]]) -> 
     }
 
 
+# Grafana's own test for a slash-delimited regex string: stringToJsRegex() (Grafana 13.2.2)
+# requires '^/(.*?)/(g?i?m?y?s?)$' of any string starting with '/', and one that fails it
+# makes a byRegexp matcher a silent no-op. JS `.` excludes all four line terminators, not
+# just \n. Use with fullmatch().
+GRAFANA_DELIMITED_REGEX = re.compile(r"/([^\n\r\u2028\u2029]*?)/(g?i?m?y?s?)")
+
+
 def override_by_regex(pattern: str, properties: Sequence[tuple[str, Any]]) -> dict[str, Any]:
     """Field override matching a display-name regex.
 
     Grafana's `byRegexp` matcher (`stringToJsRegex`, Grafana 13.2.2) only treats the
-    `options` string as a real regular expression when it is delimited with slashes
-    (`/pattern/flags`); a bare pattern like `^Free` is instead compiled as the *literal*,
-    fully-anchored expression `^` + `^Free$` + `$`, which can never match a real display
-    name and silently makes the override a no-op (found live: panel 34's "Free" series
+    `options` string as an unanchored regular expression when it is delimited with
+    slashes (`/pattern/flags`); a bare pattern like `^Free` is instead compiled fully
+    anchored, as `^` + `^Free` + `$`, which only matches a display name that is exactly
+    "Free" and silently makes the override a no-op (found live: panel 34's "Free" series
     stayed Grafana's default yellow instead of the intended fixed blue). Every caller in
     this codebase passes a bare Python regex string, so the delimiters are added here,
     once, instead of at each of the ~15 call sites.
+
+    A pattern already in Grafana's delimited form, flags included (`/^free/i`, see
+    GRAFANA_DELIMITED_REGEX), is passed through unchanged. Anything else is a bare regex
+    and gets wrapped -- including one that merely starts or ends with a slash: `/dev`
+    becomes `//dev/`, which Grafana reads back as exactly the regex `/dev`. (A bare regex
+    that itself looks delimited, like `/dev/`, is ambiguous and taken as delimited;
+    write its first slash as `\\/` to have it wrapped.)
     """
-    wrapped = pattern if pattern.startswith("/") and pattern.endswith("/") else f"/{pattern}/"
+    wrapped = pattern if GRAFANA_DELIMITED_REGEX.fullmatch(pattern) else f"/{pattern}/"
     return {
         "matcher": {"id": "byRegexp", "options": wrapped},
         "properties": [{"id": pid, "value": pval} for pid, pval in properties],

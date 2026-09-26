@@ -104,6 +104,21 @@ def test_label_values_returns_empty_list_on_error():
     assert check_queries.label_values(closed_port_url(), "job", "x") == []
 
 
+# An HTTP error status must fall back like any other failure -- and close the HTTPError:
+# filterwarnings=error turns the ResourceWarning an unclosed one emits into a failure.
+@pytest.mark.parametrize("status", [404, 500])
+def test_label_lookups_fall_back_on_http_error_status(prometheus_stub, status):
+    prometheus_stub.responses[("label", "UUID", "")] = (status, "nope")
+    prometheus_stub.responses[("label", "job", "x")] = (status, {"status": "error", "error": "nope"})
+
+    assert check_queries.fetch_a_real_gpu_uuid(prometheus_stub.url) == ".*"
+    assert check_queries.label_values(prometheus_stub.url, "job", "x") == []
+    assert [r["path"] for r in prometheus_stub.requests] == [
+        "/api/v1/label/UUID/values",
+        "/api/v1/label/job/values",
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # fetch_dcgm_job_instance_regex
 # --------------------------------------------------------------------------- #

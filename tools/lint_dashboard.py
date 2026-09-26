@@ -138,21 +138,21 @@ def check_units(all_panels, errors):
 
 
 def check_byregexp_delimited(all_panels, errors):
-    """A `byRegexp` matcher's `options` must be slash-delimited (`/pattern/`) for
-    Grafana 13.2.2 to treat it as a real regex at all -- a bare pattern silently
-    compiles as a literal, fully-anchored string and the override becomes a no-op
-    with no error anywhere except a rendered panel (see CONVENTIONS.md's byRegexp
-    gotcha). `lib.override_by_regex()` always adds the delimiters itself, so a
-    failure here means an override was hand-rolled instead of going through it."""
+    """A `byRegexp` matcher's `options` must be slash-delimited (`/pattern/flags`,
+    exactly as Grafana 13.2.2 parses it: lib.GRAFANA_DELIMITED_REGEX) to match anywhere
+    in a display name -- a bare pattern silently compiles fully anchored, and a string
+    starting with '/' that Grafana can't parse (e.g. bad flags) disables the matcher, so
+    either way the override becomes a no-op with no error anywhere except a rendered
+    panel (see CONVENTIONS.md's byRegexp gotcha). `lib.override_by_regex()` always
+    produces the delimited form, so a failure here means an override was hand-rolled
+    instead of going through it."""
     for p, _ in all_panels:
         for ov in p.get("fieldConfig", {}).get("overrides", []):
             matcher = ov.get("matcher", {})
             if matcher.get("id") != "byRegexp":
                 continue
             options = matcher.get("options", "")
-            if not (
-                isinstance(options, str) and len(options) >= 2 and options.startswith("/") and options.endswith("/")
-            ):
+            if not (isinstance(options, str) and lib.GRAFANA_DELIMITED_REGEX.fullmatch(options)):
                 errors.append(
                     f"panel id={p.get('id')} {p.get('title')!r} byRegexp override options not "
                     f"slash-delimited (silently matches nothing in Grafana 13.2.2): {options!r}"

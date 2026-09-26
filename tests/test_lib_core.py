@@ -237,9 +237,18 @@ def test_override_by_name_builds_byname_matcher():
     ("pattern", "expected_options"),
     [
         ("^Free", "/^Free/"),  # bare pattern -> delimiters added
+        ("", "//"),
         ("/^Free$/", "/^Free$/"),  # already delimited -> left untouched
-        ("/^Free", "//^Free/"),  # starts but doesn't end with '/' -> still wrapped (documents current behavior)
-        ("Free$/", "/Free$//"),  # ends but doesn't start with '/' -> still wrapped (same documented behavior)
+        ("/^free/i", "/^free/i"),  # delimited with a flag -> left untouched, not re-wrapped
+        ("/a/gimys", "/a/gimys"),  # every flag, in the only order Grafana accepts
+        ("/a/ig", "//a/ig/"),  # flags out of order: not delimited to Grafana, so a bare regex
+        ("/a/x", "//a/x/"),  # not a flag: likewise
+        # A bare regex that merely starts or ends with '/' is wrapped too: Grafana reads the
+        # body back as exactly the original pattern ("/^Free", "Free$/").
+        ("/^Free", "//^Free/"),
+        ("Free$/", "/Free$//"),
+        ("\\/dev/", "/\\/dev//"),  # escaped first slash: the documented way to force wrapping
+        ("/a\u2028b/", "//a\u2028b//"),  # JS `.` excludes U+2028, so Grafana wouldn't parse it as delimited
     ],
 )
 def test_override_by_regex_wraps_bare_patterns_in_slash_delimiters(pattern, expected_options):
@@ -248,6 +257,33 @@ def test_override_by_regex_wraps_bare_patterns_in_slash_delimiters(pattern, expe
         "matcher": {"id": "byRegexp", "options": expected_options},
         "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}],
     }
+
+
+@pytest.mark.parametrize(
+    ("options", "delimited"),
+    [
+        ("//", True),
+        ("/a/", True),
+        ("/a/b/", True),  # inner slashes are part of the body
+        ("/a/i", True),
+        ("/a/gimys", True),
+        ("/a/gi", True),
+        ("/a/ig", False),  # Grafana's flag group is g?i?m?y?s? -- fixed order, each at most once
+        ("/a/gg", False),
+        ("/a/u", False),  # JS supports u, Grafana's pattern doesn't
+        ("/", False),
+        ("a/", False),
+        ("/a", False),
+        ("a", False),
+        ("", False),
+        ("/a\nb/", False),
+        ("/a\rb/", False),
+        ("/a\u2029b/", False),
+        ("/a/\n", False),  # fullmatch: a trailing newline is not "end of string"
+    ],
+)
+def test_grafana_delimited_regex_mirrors_string_to_js_regex(options, delimited):
+    assert bool(lib.GRAFANA_DELIMITED_REGEX.fullmatch(options)) is delimited
 
 
 def test_fixed_color():
