@@ -347,6 +347,13 @@ per-GPU query) against that file before committing it. Run `uv run ruff check --
 .githooks`, see the README's Development section), a commit that fails ruff, or whose
 `nvidia-dcgm-dashboard.json` doesn't match a fresh build of the staged sources, is rejected.
 
+Finally, `uv run pytest` (also run by the hook) must pass at 100% line and branch coverage. For a
+row change that means: `tests/test_rows.py`'s `ROW_SPECS` pins every row's id, title, `collapsed`
+flag, and child ids (the id-range table above), and `tests/test_build_dashboard.py` pins the total
+panel count (`FULL_PANEL_COUNT`) and compares a fresh build to the committed
+`nvidia-dcgm-dashboard.json` -- update the first two alongside this table. A new `if`/loop in a row
+module needs a test that takes each side of it.
+
 ## What's already implemented
 
 Every row, A through L, is fully implemented and ships real panels matching the

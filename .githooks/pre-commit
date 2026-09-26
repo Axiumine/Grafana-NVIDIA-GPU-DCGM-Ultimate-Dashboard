@@ -2,16 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Giovanni Manzoni
 #
-# Pre-commit hook: lint + format-check the Python sources with ruff, then make sure the
-# committed nvidia-dcgm-dashboard.json is byte-identical to what build_dashboard.py
-# generates from the committed sources, and run tools/lint_dashboard.py on it.
+# Pre-commit hook: lint + format-check the Python sources with ruff, run the pytest suite
+# (which also enforces 100% coverage), then make sure the committed
+# nvidia-dcgm-dashboard.json is byte-identical to what build_dashboard.py generates from
+# the committed sources, and run tools/lint_dashboard.py on it.
 #
 # Enable once per clone:  git config core.hooksPath .githooks
 # Skip for one commit:    git commit --no-verify
 #
 # Every check runs against the *staged* snapshot (the index exported to a temp dir),
 # not the working tree, so a partially staged file is checked exactly as it will be
-# committed -- including which Python and ruff run them: uv resolves the staged
+# committed -- including which Python, ruff, and pytest run them: uv resolves the staged
 # .python-version / pyproject.toml / uv.lock, into a hook-private environment under
 # the git dir (created on first use, never touching .venv/). Set UV to override the
 # uv executable.
@@ -104,6 +105,12 @@ fi
 
 if ! run ruff format --no-cache --check --quiet .; then
     fail "ruff format --check failed -- run: uv run ruff format . (then re-stage)"
+fi
+
+# -p no:cacheprovider: nothing to reuse across commits (the snapshot is thrown away).
+if ! run pytest -p no:cacheprovider -q >"$tmp/pytest.out" 2>&1; then
+    cat "$tmp/pytest.out" >&2
+    fail "pytest failed (a test, or coverage below 100%) -- run: uv run pytest"
 fi
 
 if ! run python build_dashboard.py --out "$tmp/generated.json" >/dev/null; then

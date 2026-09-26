@@ -217,10 +217,12 @@ def query_range(prom_url: str, expr: str, start: float, end: float, step: int) -
         with urllib.request.urlopen(url, timeout=30) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        try:
-            msg = json.loads(e.read().decode("utf-8")).get("error", str(e))
-        except Exception:
-            msg = str(e)
+        # `with e`: see check_queries.py's classify().
+        with e:
+            try:
+                msg = json.loads(e.read().decode("utf-8")).get("error", str(e))
+            except Exception:
+                msg = str(e)
         return "ERROR", msg
     except Exception as e:
         return "ERROR", str(e)

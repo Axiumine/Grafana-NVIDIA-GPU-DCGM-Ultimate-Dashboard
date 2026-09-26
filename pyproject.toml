@@ -12,7 +12,11 @@ requires-python = ">=3.14"
 dependencies = []
 
 [dependency-groups]
-dev = ["ruff>=0.16.9"]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.9",
+]
 
 [tool.uv]
 package = false
@@ -57,3 +61,30 @@ select = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["dcgm_dashboard"]
+
+# pytest + coverage. Every source file (the builder, its row modules, build_dashboard.py,
+# and tools/) must stay at 100% line *and* branch coverage; `uv run pytest` fails
+# otherwise. Enforced by .githooks/pre-commit.
+#
+#   uv run pytest               # full suite + coverage report
+#   uv run pytest --no-cov -x   # quick iteration, no coverage gate
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+# "." for build_dashboard / dcgm_dashboard, "tools" so tests can `import lint_dashboard` etc.
+pythonpath = [".", "tools"]
+addopts = ["--strict-config", "--strict-markers", "-ra", "--cov", "--cov-report=term-missing:skip-covered"]
+xfail_strict = true
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["build_dashboard", "dcgm_dashboard", "tools"]
+
+[tool.coverage.report]
+# tools/ is a plain directory of scripts, not a package: without this, a tools/*.py
+# that no test imports would be silently left out of the report instead of showing 0%.
+include_namespace_packages = true
+fail_under = 100
+show_missing = true
+skip_covered = true

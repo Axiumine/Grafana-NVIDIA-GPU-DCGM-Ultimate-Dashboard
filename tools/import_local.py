@@ -75,7 +75,9 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=30) as resp:
             resp_body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        print(f"ERROR: HTTP {e.code} importing {args.json_path}: {e.read().decode(errors='replace')}", file=sys.stderr)
+        with e:  # see tools/check_queries.py's classify()
+            detail = e.read().decode(errors="replace")
+        print(f"ERROR: HTTP {e.code} importing {args.json_path}: {detail}", file=sys.stderr)
         return 1
     except urllib.error.URLError as e:
         print(f"ERROR: could not reach {url}: {e}", file=sys.stderr)

@@ -144,10 +144,13 @@ def classify(prom_url: str, expr: str) -> tuple:
         with urllib.request.urlopen(url, timeout=15) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        try:
-            msg = json.loads(e.read().decode("utf-8")).get("error", str(e))
-        except Exception:
-            msg = str(e)
+        # `with e`: an HTTPError owns the response body; left unclosed it is only
+        # released by the cyclic GC (its traceback references it), with a ResourceWarning.
+        with e:
+            try:
+                msg = json.loads(e.read().decode("utf-8")).get("error", str(e))
+            except Exception:
+                msg = str(e)
         return "ERROR", msg
     except Exception as e:  # network error, timeout, bad JSON, ...
         return "ERROR", str(e)
