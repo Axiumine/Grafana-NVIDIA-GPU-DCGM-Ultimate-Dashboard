@@ -319,30 +319,33 @@ across any row of tiles.
 cd <repo-root>
 
 # Build just row A (always include it -- top strip) + your row, to a scratch path:
-python3 build_dashboard.py --rows a,<your-letter> --out /tmp/dcgm-dev.json
+uv run build_dashboard.py --rows a,<your-letter> --out /tmp/dcgm-dev.json
 
 # Static checks (ids, gridPos, datasource refs, units, CSV coverage, rate()-on-gauge,
 # byRegexp delimiters, no stray Kelvin math):
-python3 tools/lint_dashboard.py /tmp/dcgm-dev.json
+uv run tools/lint_dashboard.py /tmp/dcgm-dev.json
 
 # Does every target actually return data from a live Prometheus?
 # Defaults to http://localhost:9090 -- there is no local Prometheus/Grafana
 # in this project; pass --prom URL to point at a different one. import_local.py is
 # stale (targeted a local test Grafana that no longer exists) -- do not use it.
-python3 tools/check_queries.py /tmp/dcgm-dev.json
-python3 tools/check_queries.py /tmp/dcgm-dev.json --panels 40,41,42   # just your ids
+uv run tools/check_queries.py /tmp/dcgm-dev.json
+uv run tools/check_queries.py /tmp/dcgm-dev.json --panels 40,41,42   # just your ids
 
 # Does any per-GPU query render two series under one legend (the series-identity
 # gotcha below)? Only meaningful with a --start/--end window that actually spans a
 # label-set change (a driver/VBIOS upgrade or a custom-counters.csv edit) -- on an
 # unchanged label set every target simply reports its normal single-series legend.
-python3 tools/check_series.py /tmp/dcgm-dev.json
+uv run tools/check_series.py /tmp/dcgm-dev.json
 ```
 
-Once your row is ready, rebuild the full dashboard (`python3 build_dashboard.py`, no
+Once your row is ready, rebuild the full dashboard (`uv run build_dashboard.py`, no
 `--rows`/`--out`) so `nvidia-dcgm-dashboard.json` reflects every row, and re-run
 `lint_dashboard.py`/`check_queries.py` (and `check_series.py`, if you touched a
-per-GPU query) against that file before committing it.
+per-GPU query) against that file before committing it. Run `uv run ruff check --fix .` and
+`uv run ruff format .` as well: with the repo's pre-commit hook enabled (`git config core.hooksPath
+.githooks`, see the README's Development section), a commit that fails ruff, or whose
+`nvidia-dcgm-dashboard.json` doesn't match a fresh build of the staged sources, is rejected.
 
 ## What's already implemented
 

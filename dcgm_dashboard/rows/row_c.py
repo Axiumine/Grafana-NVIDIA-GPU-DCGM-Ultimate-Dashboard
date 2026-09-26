@@ -46,17 +46,18 @@ instant-query staleness markers, e.g. VictoriaMetrics -- see CONVENTIONS.md)
 without aggregating any label away, so the CSV columns this table exists to
 show still render.
 """
-from typing import Any, Dict, List, Tuple
+
+from typing import Any
 
 from .. import lib
 
 
-def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     f = ctx.filter_all
     inner = f[1:-1]
     row_def = lib.row(20, "GPU Inventory", collapsed=False)
 
-    panels: List[Dict[str, Any]] = []
+    panels: list[dict[str, Any]] = []
 
     # ---- id 97: Fleet Live Status (new, completeness gap #1) --------------
     # Every expr below goes through lib.per_gpu() (see CONVENTIONS.md's
@@ -66,8 +67,7 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     # the CSV churn costs this table nothing, and fixes the same duplicate-row
     # risk a driver/VBIOS upgrade would otherwise cause here.
     fault_throttle_terms = " + ".join(
-        lib.clock_event_bit_expr(f"DCGM_FI_DEV_CLOCKS_EVENT_REASONS{f}", bit)
-        for bit in lib.REAL_FAULT_THROTTLE_BITS
+        lib.clock_event_bit_expr(f"DCGM_FI_DEV_CLOCKS_EVENT_REASONS{f}", bit) for bit in lib.REAL_FAULT_THROTTLE_BITS
     )
     throttled_expr = lib.per_gpu(f"(({fault_throttle_terms}) > bool 0)")
     power_capped_expr = lib.per_gpu(
@@ -76,10 +76,15 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     # UUID alone is sufficient here (the join key, and this frame contributes no
     # display identity column -- those come from frame 1 below), so this is left
     # as its own pre-existing `max by (UUID)`, already immune to the CSV split.
-    health_expr = f'max by (UUID) (DCGM_EXP_GPU_HEALTH_STATUS{{{inner}}})'
+    health_expr = f"max by (UUID) (DCGM_EXP_GPU_HEALTH_STATUS{{{inner}}})"
 
     fleet_panel = lib.table_join(
-        97, "Fleet Live Status", 0, 1, 24, 8,
+        97,
+        "Fleet Live Status",
+        0,
+        1,
+        24,
+        8,
         exprs=[
             lib.per_gpu(f"DCGM_FI_DEV_GPU_UTIL{f}"),
             f"100*{lib.per_gpu(f'DCGM_FI_PROF_PIPE_TENSOR_ACTIVE{f}')}",
@@ -92,36 +97,65 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         ],
         identity_fields={"hostname": "Host", "gpu": "GPU", "modelName": "Model"},
         noise_fields=[
-            "Time", "job", "device", "host", "__name__", "instance", "pci_bus_id",
-            "DCGM_FI_DEV_GPU_BRAND", "DCGM_FI_DEV_BOARD_SERIAL", "DCGM_FI_DRIVER_VERSION",
-            "DCGM_FI_DEV_VBIOS_VERSION", "DCGM_FI_SYSTEM_NVML_VERSION",
-            "DCGM_FI_CUDA_GPU_VISIBLE_DEVICES", "DCGM_FI_DEV_FABRIC_CLUSTER_UUID", "DCGM_FI_IMEX_DOMAIN_STATUS",
+            "Time",
+            "job",
+            "device",
+            "host",
+            "__name__",
+            "instance",
+            "pci_bus_id",
+            "DCGM_FI_DEV_GPU_BRAND",
+            "DCGM_FI_DEV_BOARD_SERIAL",
+            "DCGM_FI_DRIVER_VERSION",
+            "DCGM_FI_DEV_VBIOS_VERSION",
+            "DCGM_FI_SYSTEM_NVML_VERSION",
+            "DCGM_FI_CUDA_GPU_VISIBLE_DEVICES",
+            "DCGM_FI_DEV_FABRIC_CLUSTER_UUID",
+            "DCGM_FI_IMEX_DOMAIN_STATUS",
         ],
         value_renames=[
-            "GPU Util (%)", "Tensor Active (%)", "Temp (C)", "Power (W)", "VRAM Used (%)",
-            "Throttled", "Power Capped", "Health",
+            "GPU Util (%)",
+            "Tensor Active (%)",
+            "Temp (C)",
+            "Power (W)",
+            "VRAM Used (%)",
+            "Throttled",
+            "Power Capped",
+            "Health",
         ],
         overrides=[
-            lib.override_by_name("Health", [
-                ("mappings", lib.health_status_mappings()),
-                ("custom.cellOptions", {"type": "color-background"}),
-                ("custom.width", 90),
-            ]),
-            lib.override_by_name("Throttled", [
-                ("mappings", lib.value_mapping([(0, "OK", "green"), (1, "Throttled", "orange")])),
-                ("custom.cellOptions", {"type": "color-background"}),
-                ("custom.width", 110),
-            ]),
-            lib.override_by_name("Power Capped", [
-                ("mappings", lib.value_mapping([(0, "OK", "green"), (1, "At Cap", "blue")])),
-                ("custom.cellOptions", {"type": "color-background"}),
-                ("custom.width", 110),
-            ]),
-            lib.override_by_name("Temp (C)", [
-                ("unit", lib.unit("celsius")),
-                ("thresholds", lib.no_thresholds("gray")),
-                ("custom.width", 100),
-            ]),
+            lib.override_by_name(
+                "Health",
+                [
+                    ("mappings", lib.health_status_mappings()),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 90),
+                ],
+            ),
+            lib.override_by_name(
+                "Throttled",
+                [
+                    ("mappings", lib.value_mapping([(0, "OK", "green"), (1, "Throttled", "orange")])),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 110),
+                ],
+            ),
+            lib.override_by_name(
+                "Power Capped",
+                [
+                    ("mappings", lib.value_mapping([(0, "OK", "green"), (1, "At Cap", "blue")])),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 110),
+                ],
+            ),
+            lib.override_by_name(
+                "Temp (C)",
+                [
+                    ("unit", lib.unit("celsius")),
+                    ("thresholds", lib.no_thresholds("gray")),
+                    ("custom.width", 100),
+                ],
+            ),
             lib.override_by_name("GPU Util (%)", [("unit", lib.unit("percent")), ("custom.width", 100)]),
             lib.override_by_name("Tensor Active (%)", [("unit", lib.unit("percent")), ("custom.width", 130)]),
             lib.override_by_name("Power (W)", [("unit", lib.unit("watt")), ("custom.width", 100)]),
@@ -131,16 +165,16 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
             lib.override_by_name("Model", [("custom.width", 220)]),
         ],
         description="Live per-GPU fleet status, one row per GPU: at-a-glance Util/Tensor-Active/Temp/"
-                    "Power/VRAM plus three decision columns -- Throttled (any of the 4 real-fault throttle "
-                    "bits, same as row A's 'Fault-throttled' value), Power Capped (SW_POWER_CAP alone, "
-                    "shown separately and never colored as a fault since hitting the configured power limit "
-                    "under full load is expected), and Health (Pass/Warn/Fail, same mapping as row A panel "
-                    "8 and the Reliability row's incident table). Temp (C) is informational only (gray, no "
-                    "fixed threshold) -- a fixed Celsius band is not portable across GPU models with "
-                    "different slowdown points; see panel 5/17 for the portable percent-of-slowdown "
-                    "version. Answers 'which GPU(s) need attention right now' without scrolling past a full "
-                    "per-GPU repeat block (row B) on a multi-host/multi-GPU fleet. Sorted Health desc, then "
-                    "Temp desc by default so the worst GPU floats to the top.",
+        "Power/VRAM plus three decision columns -- Throttled (any of the 4 real-fault throttle "
+        "bits, same as row A's 'Fault-throttled' value), Power Capped (SW_POWER_CAP alone, "
+        "shown separately and never colored as a fault since hitting the configured power limit "
+        "under full load is expected), and Health (Pass/Warn/Fail, same mapping as row A panel "
+        "8 and the Reliability row's incident table). Temp (C) is informational only (gray, no "
+        "fixed threshold) -- a fixed Celsius band is not portable across GPU models with "
+        "different slowdown points; see panel 5/17 for the portable percent-of-slowdown "
+        "version. Answers 'which GPU(s) need attention right now' without scrolling past a full "
+        "per-GPU repeat block (row B) on a multi-host/multi-GPU fleet. Sorted Health desc, then "
+        "Temp desc by default so the worst GPU floats to the top.",
     )
     fleet_panel["options"]["sortBy"] = [
         {"displayName": "Health", "desc": True},
@@ -155,7 +189,12 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     cc_field = f"DCGM_FI_CUDA_GPU_COMPUTE_CAPABILITY{f}"
     cuda_field = f"DCGM_FI_CUDA_DRIVER_VERSION{f}"
     inventory_panel = lib.table_join(
-        21, "GPU Inventory", 0, 9, 24, 6,
+        21,
+        "GPU Inventory",
+        0,
+        9,
+        24,
+        6,
         exprs=[
             # Every target here is raw/unaggregated on purpose (see the module
             # docstring above) -- lib.per_gpu() would aggregate away the CSV
@@ -164,7 +203,9 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
             # most-recently-sampled series per GPU (defensive against a backend
             # without Prometheus's own instant-query staleness markers -- see
             # CONVENTIONS.md's series-identity section) without collapsing any label.
-            lib.latest_per_gpu(f"DCGM_FI_DEV_GPU_UTIL{f}"),  # base: carries the full label set (identity columns), not displayed
+            lib.latest_per_gpu(
+                f"DCGM_FI_DEV_GPU_UTIL{f}"
+            ),  # base: carries the full label set (identity columns), not displayed
             lib.latest_per_gpu(f"DCGM_FI_DEV_FB_TOTAL{f}"),
             lib.latest_per_gpu(f"DCGM_FI_DEV_ECC_MODE{f}"),
             lib.latest_per_gpu(f"DCGM_FI_DEV_MIG_MODE{f}"),
@@ -190,23 +231,81 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         # rarely-needed identity columns) -- freed width is why the remaining ~17 columns
         # fit a 24-wide panel without a forced horizontal scroll for 1-8 GPUs.
         noise_fields=[
-            "Time", "job", "device", "gpu", "host", "__name__",
-            "DCGM_FI_CUDA_GPU_VISIBLE_DEVICES", "DCGM_FI_DEV_FABRIC_CLUSTER_UUID", "DCGM_FI_IMEX_DOMAIN_STATUS",
-            "DCGM_FI_DEV_BOARD_SERIAL", "DCGM_FI_SYSTEM_NVML_VERSION",
+            "Time",
+            "job",
+            "device",
+            "gpu",
+            "host",
+            "__name__",
+            "DCGM_FI_CUDA_GPU_VISIBLE_DEVICES",
+            "DCGM_FI_DEV_FABRIC_CLUSTER_UUID",
+            "DCGM_FI_IMEX_DOMAIN_STATUS",
+            "DCGM_FI_DEV_BOARD_SERIAL",
+            "DCGM_FI_SYSTEM_NVML_VERSION",
         ],
         value_renames=[
             None,  # GPU_UTIL was only the join's anchor query, not a displayed column
-            "FB Total (MiB)", "ECC Mode", "MIG Mode", "Virtualization Mode", "Compute Mode",
-            "Persistence Mode", "CC Mode", "CUDA Compute Capability Major", "CUDA Compute Capability Minor",
-            "CUDA Driver Major", "CUDA Driver Minor",
+            "FB Total (MiB)",
+            "ECC Mode",
+            "MIG Mode",
+            "Virtualization Mode",
+            "Compute Mode",
+            "Persistence Mode",
+            "CC Mode",
+            "CUDA Compute Capability Major",
+            "CUDA Compute Capability Minor",
+            "CUDA Driver Major",
+            "CUDA Driver Minor",
         ],
         overrides=[
-            lib.override_by_name("ECC Mode", [("mappings", lib.ecc_mode_mappings()), ("custom.cellOptions", {"type": "color-background"}), ("custom.width", 90)]),
-            lib.override_by_name("MIG Mode", [("mappings", lib.bool_config_mappings()), ("custom.cellOptions", {"type": "color-background"}), ("custom.width", 90)]),
-            lib.override_by_name("Virtualization Mode", [("mappings", lib.virtual_mode_mappings()), ("custom.cellOptions", {"type": "color-background"}), ("custom.width", 150)]),
-            lib.override_by_name("Compute Mode", [("mappings", lib.compute_mode_mappings()), ("custom.cellOptions", {"type": "color-background"}), ("custom.width", 150)]),
-            lib.override_by_name("Persistence Mode", [("mappings", lib.bool_config_mappings()), ("custom.cellOptions", {"type": "color-background"}), ("custom.width", 130)]),
-            lib.override_by_name("CC Mode", [("mappings", lib.bool_config_mappings()), ("custom.cellOptions", {"type": "color-background"}), ("custom.width", 90)]),
+            lib.override_by_name(
+                "ECC Mode",
+                [
+                    ("mappings", lib.ecc_mode_mappings()),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 90),
+                ],
+            ),
+            lib.override_by_name(
+                "MIG Mode",
+                [
+                    ("mappings", lib.bool_config_mappings()),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 90),
+                ],
+            ),
+            lib.override_by_name(
+                "Virtualization Mode",
+                [
+                    ("mappings", lib.virtual_mode_mappings()),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 150),
+                ],
+            ),
+            lib.override_by_name(
+                "Compute Mode",
+                [
+                    ("mappings", lib.compute_mode_mappings()),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 150),
+                ],
+            ),
+            lib.override_by_name(
+                "Persistence Mode",
+                [
+                    ("mappings", lib.bool_config_mappings()),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 130),
+                ],
+            ),
+            lib.override_by_name(
+                "CC Mode",
+                [
+                    ("mappings", lib.bool_config_mappings()),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 90),
+                ],
+            ),
             lib.override_by_name("FB Total (MiB)", [("unit", lib.unit("mbytes")), ("custom.width", 110)]),
             lib.override_by_name("Model", [("custom.width", 210)]),
             lib.override_by_name("Hostname", [("custom.width", 110)]),
@@ -221,10 +320,10 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
             lib.override_by_name("CUDA Driver Minor", [("custom.width", 90)]),
         ],
         description="One row per GPU: identity, driver/VBIOS versions, decoded CUDA compute capability and "
-                    "driver version, FB total, and mode flags (cell-colored). Board Serial and NVML Version "
-                    "are intentionally not shown here (lowest-value, rarely-needed columns, dropped to keep "
-                    "this table scrollbar-free) -- both remain queryable directly via DCGM_FI_DEV_BOARD_SERIAL "
-                    "/ DCGM_FI_SYSTEM_NVML_VERSION in Explore if actually needed.",
+        "driver version, FB total, and mode flags (cell-colored). Board Serial and NVML Version "
+        "are intentionally not shown here (lowest-value, rarely-needed columns, dropped to keep "
+        "this table scrollbar-free) -- both remain queryable directly via DCGM_FI_DEV_BOARD_SERIAL "
+        "/ DCGM_FI_SYSTEM_NVML_VERSION in Explore if actually needed.",
     )
     panels.append(inventory_panel)
 

@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Giovanni Manzoni
 """Static checks on a built dashboard JSON.
 
-Usage: python3 tools/lint_dashboard.py <json_path> [--csv PATH]
+Usage: uv run tools/lint_dashboard.py <json_path> [--csv PATH]
 
 Hard errors (non-zero exit):
   - duplicate panel ids
@@ -28,7 +28,6 @@ Warnings (reported, do not fail the run):
     should be dropped from the CSV
   - rate()/increase() applied to a field whose CSV type isn't "counter"
 """
-from __future__ import annotations
 
 import argparse
 import json
@@ -151,7 +150,9 @@ def check_byregexp_delimited(all_panels, errors):
             if matcher.get("id") != "byRegexp":
                 continue
             options = matcher.get("options", "")
-            if not (isinstance(options, str) and len(options) >= 2 and options.startswith("/") and options.endswith("/")):
+            if not (
+                isinstance(options, str) and len(options) >= 2 and options.startswith("/") and options.endswith("/")
+            ):
                 errors.append(
                     f"panel id={p.get('id')} {p.get('title')!r} byRegexp override options not "
                     f"slash-delimited (silently matches nothing in Grafana 13.2.2): {options!r}"

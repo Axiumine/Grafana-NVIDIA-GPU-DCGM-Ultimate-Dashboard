@@ -1,0 +1,124 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Giovanni Manzoni
+#
+# Pre-commit hook: lint + format-check the Python sources with ruff, then make sure the
+# committed nvidia-dcgm-dashboard.json is byte-identical to what build_dashboard.py
+# generates from the committed sources, and run tools/lint_dashboard.py on it.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+# Skip for one commit:    git commit --no-verify
+#
+# Every check runs against the *staged* snapshot (the index exported to a temp dir),
+# not the working tree, so a partially staged file is checked exactly as it will be
+# committed -- including which Python and ruff run them: uv resolves the staged
+# .python-version / pyproject.toml / uv.lock, into a hook-private environment under
+# the git dir (created on first use, never touching .venv/). Set UV to override the
+# uv executable.
+
+set -eu
+
+UV=${UV:-uv}
+
+# Commits that touch none of the Python sources, the project/ruff config, or the
+# build's inputs/output (README, screenshots, ...) have nothing to check.
+if git diff --cached --quiet -- '*.py' pyproject.toml uv.lock .python-version \
+    nvidia-dcgm-dashboard.json custom-counters.csv; then
+    exit 0
+fi
+
+if ! command -v "$UV" >/dev/null 2>&1; then
+    echo "pre-commit: '$UV' not found on PATH -- install uv (https://docs.astral.sh/uv/) or set UV." >&2
+    exit 1
+fi
+
+env_dir="$(git rev-parse --absolute-git-dir)/pre-commit-venv"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/dcgm-pre-commit.XXXXXX")
+child=
+watchdog=
+cleanup() {
+    # Interrupted mid-check: stop the running check too (uv forwards the signal to
+    # its ruff/python child), not just this script.
+    [ -z "$child" ] || kill -TERM "$child" 2>/dev/null || :
+    [ -z "$watchdog" ] || kill -TERM "$watchdog" 2>/dev/null || :
+    rm -rf "$tmp"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# git does not stop its hook when git itself is killed; without this the checks would
+# keep running orphaned. Once git exits we are reparented, so poll our current parent
+# pid and signal ourselves when it changes (`kill -0 $PPID` is not enough: a killed git
+# lingers as a zombie until its own parent reaps it). Skipped if ps can't report it.
+parent_pid() {
+    ps -o ppid= -p $$ 2>/dev/null | tr -d ' '
+}
+if [ "$(parent_pid)" = "$PPID" ]; then
+    (while [ "$(parent_pid)" = "$PPID" ]; do sleep 1; done; kill -TERM $$ 2>/dev/null) \
+        </dev/null >/dev/null 2>&1 &
+    watchdog=$!
+fi
+
+# Export while still in the repo: GIT_INDEX_FILE (set by `git commit -a` / `git commit
+# <paths>`) is honored, so this is the exact tree about to be committed.
+git checkout-index --all --prefix="$tmp/tree/"
+cd "$tmp/tree"
+export PYTHONDONTWRITEBYTECODE=1
+
+# The staged project, not the working tree's: a staged pyproject.toml / uv.lock that
+# disagree (or can't resolve) must block the commit even if the on-disk copies are
+# fine, and vice versa. --locked never rewrites the snapshot's uv.lock. TMPDIR: uv
+# leaves a lock file keyed by project path there, i.e. a new one per commit.
+#
+# Runs as a background job that we `wait` for: a trapped signal interrupts `wait`
+# at once, whereas a foreground child would delay the trap until it exited. `exec`
+# makes the job's pid uv's own, so cleanup() can signal it.
+run() {
+    (exec env TMPDIR="$tmp" UV_PROJECT_ENVIRONMENT="$env_dir" \
+        "$UV" run --quiet --locked --project "$tmp/tree" -- "$@") &
+    child=$!
+    status=0
+    wait "$child" || status=$?
+    child=
+    return "$status"
+}
+
+# Fail fast (staged uv.lock out of date with the staged pyproject.toml, no network on
+# first use, ...) instead of reporting every check below as failed.
+if ! run python -c ''; then
+    echo "pre-commit: could not set up the uv environment from the staged pyproject.toml/uv.lock (see above; if uv.lock is stale: uv lock && git add uv.lock)." >&2
+    exit 1
+fi
+
+failed=0
+fail() {
+    failed=1
+    printf 'pre-commit: %s\n' "$1" >&2
+}
+
+if ! run ruff check --no-cache --quiet --output-format concise .; then
+    fail "ruff check failed -- run: uv run ruff check --fix . (then re-stage)"
+fi
+
+if ! run ruff format --no-cache --check --quiet .; then
+    fail "ruff format --check failed -- run: uv run ruff format . (then re-stage)"
+fi
+
+if ! run python build_dashboard.py --out "$tmp/generated.json" >/dev/null; then
+    fail "build_dashboard.py failed on the staged sources"
+elif ! cmp -s "$tmp/generated.json" nvidia-dcgm-dashboard.json; then
+    fail "staged nvidia-dcgm-dashboard.json is stale or hand-edited -- run: uv run build_dashboard.py && git add nvidia-dcgm-dashboard.json"
+elif ! run python tools/lint_dashboard.py nvidia-dcgm-dashboard.json >"$tmp/lint.out" 2>&1; then
+    cat "$tmp/lint.out" >&2
+    fail "tools/lint_dashboard.py reported errors"
+elif grep -q '^WARN:' "$tmp/lint.out"; then
+    # Warnings don't block the commit, but shouldn't be silently swallowed either.
+    cat "$tmp/lint.out" >&2
+fi
+
+if [ "$failed" -ne 0 ]; then
+    echo "pre-commit: commit aborted (checked the staged snapshot; bypass with --no-verify)." >&2
+    exit 1
+fi

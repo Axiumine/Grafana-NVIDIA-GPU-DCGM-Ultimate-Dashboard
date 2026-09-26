@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Giovanni Manzoni
+#
+# uv project for the dashboard generator and its tools -- not a published package.
+# `uv run <script>` runs any script on the pinned Python (.python-version) with the
+# locked dev tools (uv.lock); see README's "Development" section.
+
+[project]
+name = "nvidia-dcgm-dashboard"
+version = "0.0.0"
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = ["ruff>=0.16.9"]
+
+[tool.uv]
+package = false
+
+# Ruff linter + formatter. Enforced by .githooks/pre-commit. target-version is
+# inferred from requires-python above.
+#
+#   uv run ruff check --fix .   # lint, applying safe autofixes
+#   uv run ruff format .        # format
+[tool.ruff]
+# The exact version is pinned by uv.lock; this floor makes an older ruff (e.g. an
+# editor's bundled one) fail loudly instead of disagreeing with the committed
+# formatting.
+required-version = ">=0.16"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "PIE",  # flake8-pie
+    "PERF", # perflint
+    "RET",  # flake8-return
+    "ISC",  # flake8-implicit-str-concat
+    "N",    # pep8-naming
+    "A",    # flake8-builtins
+    "ARG",  # flake8-unused-arguments
+    "DTZ",  # flake8-datetimez
+    "EXE",  # flake8-executable
+    "PGH",  # pygrep-hooks
+    "PLE",  # pylint errors
+    "PLW",  # pylint warnings
+    "FURB", # refurb
+    "RUF",  # ruff-specific
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dcgm_dashboard"]

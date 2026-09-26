@@ -4,7 +4,7 @@
 """Execute every panel target's PromQL expression against Prometheus and report
 whether it returns data.
 
-Usage: python3 tools/check_queries.py <json_path> [--panels 1,7,21] [--prom URL]
+Usage: uv run tools/check_queries.py <json_path> [--panels 1,7,21] [--prom URL]
 
 Walks every panel, including nested panels of a collapsed row and the (already
 top-level, per our layout engine) children of a repeated row. For each target:
@@ -26,7 +26,6 @@ single-GPU, no-NVLink/MIG/vGPU environment).
 http://localhost:9090 -- there is no local Prometheus/Grafana in this
 project anymore (see README.md). Override it to point at any other Prometheus.
 """
-from __future__ import annotations
 
 import argparse
 import json
@@ -85,8 +84,13 @@ def fetch_a_real_gpu_uuid(prom_url: str) -> str:
 def label_values(prom_url: str, label: str, match_expr: str) -> list:
     """GET /api/v1/label/<label>/values?match[]=<match_expr> -- the real Prometheus
     API behind Grafana's `label_values(<selector>, <label>)` template query."""
-    url = prom_url.rstrip("/") + "/api/v1/label/" + urllib.parse.quote(label, safe="") + "/values?" \
+    url = (
+        prom_url.rstrip("/")
+        + "/api/v1/label/"
+        + urllib.parse.quote(label, safe="")
+        + "/values?"
         + urllib.parse.urlencode({"match[]": match_expr})
+    )
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             body = json.loads(resp.read().decode("utf-8"))
@@ -159,7 +163,7 @@ def classify(prom_url: str, expr: str) -> tuple:
     r0 = result[0]
     if "value" in r0:
         sample = r0["value"][1]
-    elif "values" in r0 and r0["values"]:
+    elif r0.get("values"):
         sample = r0["values"][-1][1]
     return "OK", f"n={n}, sample={sample}"
 
@@ -168,8 +172,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("json_path")
     ap.add_argument("--panels", default=None, help="comma-separated panel ids to restrict to")
-    ap.add_argument("--prom", "--prom-url", dest="prom", default=DEFAULT_PROM_URL,
-                     help=f"Prometheus base URL (default: {DEFAULT_PROM_URL})")
+    ap.add_argument(
+        "--prom",
+        "--prom-url",
+        dest="prom",
+        default=DEFAULT_PROM_URL,
+        help=f"Prometheus base URL (default: {DEFAULT_PROM_URL})",
+    )
     args = ap.parse_args()
     args.prom_url = args.prom  # keep the rest of this module's existing attribute name
 

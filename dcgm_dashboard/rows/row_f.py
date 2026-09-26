@@ -46,15 +46,16 @@ already the right operator for the range-integrating `increase()` inside it),
 and panel 46's rate() targets each get the same lib.per_gpu(agg="max")
 treatment as the identical pattern in panels 44/45.
 """
+
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from .. import lib
 
 # Friendly display text for each bit's *asserted* (value=1) state. The two
 # "clock limit (informational)" bits are labeled as such right in the text
 # (see CONVENTIONS.md's clock-event-bitmask gotcha).
-BIT_LABELS: Dict[str, str] = {
+BIT_LABELS: dict[str, str] = {
     "GPU_IDLE": "GPU Idle",
     "APP_CLOCKS": "App Clocks Setting",
     "SW_POWER_CAP": "SW Power Cap (throttling, expected at full load)",
@@ -73,13 +74,16 @@ BIT_LABELS: Dict[str, str] = {
 # colored yellow here instead of lib.CLOCK_EVENT_COLOR["throttle"]'s red. Every
 # other "throttle"-nature bit (HW_SLOWDOWN, SW_THERMAL, HW_THERMAL, HW_POWER_BRAKE)
 # keeps the shared red.
-BIT_COLOR_OVERRIDE: Dict[str, str] = {"SW_POWER_CAP": "yellow"}
+BIT_COLOR_OVERRIDE: dict[str, str] = {"SW_POWER_CAP": "yellow"}
 
 # Short legend tokens for the per-reason NS-counter panel (44) -- these 5 fields
 # are the direct twins of the 5 REAL_THROTTLE_BITS, in the same bit order.
 THROTTLE_NS_FIELDS = [
     ("DCGM_FI_DEV_CLOCKS_EVENT_REASON_SW_POWER_CAP_NS", "SW Power Cap"),
-    ("DCGM_FI_DEV_CLOCKS_EVENT_REASON_SYNC_BOOST_NS", "Sync Boost"),  # pre-rename spelling, see custom-counters.csv's header note
+    (
+        "DCGM_FI_DEV_CLOCKS_EVENT_REASON_SYNC_BOOST_NS",
+        "Sync Boost",
+    ),  # pre-rename spelling, see custom-counters.csv's header note
     ("DCGM_FI_DEV_CLOCKS_EVENT_REASON_SW_THERM_SLOWDOWN_NS", "SW Thermal"),
     ("DCGM_FI_DEV_CLOCKS_EVENT_REASON_HW_THERM_SLOWDOWN_NS", "HW Thermal"),
     ("DCGM_FI_DEV_CLOCKS_EVENT_REASON_HW_POWER_BRAKE_SLOWDOWN_NS", "HW Power Brake"),
@@ -89,7 +93,7 @@ THROTTLE_NS_FIELDS = [
 # *_NS field available. Maps each of the above legend labels back to its CLOCK_EVENT_BITS
 # key so panel 44 can reuse the exact same nature-based color as panel 42's bitmask lane
 # for the same reason, instead of an arbitrary classic-palette color by field order.
-THROTTLE_NS_BIT_NAME: Dict[str, str] = {
+THROTTLE_NS_BIT_NAME: dict[str, str] = {
     "SW Power Cap": "SW_POWER_CAP",
     "Sync Boost": "SYNC_BOOST",
     "SW Thermal": "SW_THERMAL",
@@ -117,16 +121,21 @@ FAULT_INFO_ONLY = {
 }
 
 
-def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     f = ctx.filter_all
     std = ctx.legend_std
     row_def = lib.row(39, "Clocks & Throttling", collapsed=False)
-    panels: List[Dict[str, Any]] = []
+    panels: list[dict[str, Any]] = []
 
     # -- Sub-row 1 (relative y=1, h=8) -------------------------------------
     panels.append(
         lib.timeseries(
-            40, "SM / Memory / Video clock", 0, 1, 12, 8,
+            40,
+            "SM / Memory / Video clock",
+            0,
+            1,
+            12,
+            8,
             [
                 lib.target(lib.per_gpu(f"DCGM_FI_DEV_SM_CLOCK{f}"), legend=f"SM Clock · {std}", ref_id="A"),
                 lib.target(lib.per_gpu(f"DCGM_FI_DEV_MEM_CLOCK{f}"), legend=f"Mem Clock · {std}", ref_id="B"),
@@ -136,26 +145,34 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
             ],
             unit_id="rotmhz",
             overrides=[
-                lib.override_by_regex(r"^Max ", [
-                    ("custom.lineStyle", {"fill": "dash", "dash": [10, 10]}),
-                    ("custom.fillOpacity", 0),
-                ]),
+                lib.override_by_regex(
+                    r"^Max ",
+                    [
+                        ("custom.lineStyle", {"fill": "dash", "dash": [10, 10]}),
+                        ("custom.fillOpacity", 0),
+                    ],
+                ),
             ],
             description="Direct nvidia-smi/14574 parity: SM, memory and video clock, each with its "
-                        "hardware max as a dashed reference. A solid line sitting well below its dashed "
-                        "max most of the time is expected on an idle-ish GPU -- see panel 41 for *why* "
-                        "clocks are where they are.",
+            "hardware max as a dashed reference. A solid line sitting well below its dashed "
+            "max most of the time is expected on an idle-ish GPU -- see panel 41 for *why* "
+            "clocks are where they are.",
         )
     )
     panels.append(
         lib.state_timeline(
-            41, "P-State history", 12, 1, 12, 8,
+            41,
+            "P-State history",
+            12,
+            1,
+            12,
+            8,
             [lib.target(lib.per_gpu(f"DCGM_FI_DEV_PSTATE{f}"), legend=std, ref_id="A")],
             mappings=lib.pstate_mappings(colored=True),
             description="Performance state over time, P0 (max performance) to P15 (min performance) -- "
-                        "16 distinct colors, one per state, so a state *change* is visible. A GPU that idles "
-                        "mostly in a high P-number (e.g. P8) and drops to P0 only under load is healthy; see "
-                        "panel 99 for a range-summary 'fraction of time boosted' number.",
+            "16 distinct colors, one per state, so a state *change* is visible. A GPU that idles "
+            "mostly in a high P-number (e.g. P8) and drops to P0 only under load is healthy; see "
+            "panel 99 for a range-summary 'fraction of time boosted' number.",
         )
     )
 
@@ -168,52 +185,72 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         bit_targets.append(lib.target(lib.per_gpu(expr), legend=f"{bit_name} · {std}", ref_id=ref_id))
         bit_color = BIT_COLOR_OVERRIDE.get(bit_name, lib.CLOCK_EVENT_COLOR[nature])
         bit_overrides.append(
-            lib.override_by_regex(r"^" + re.escape(bit_name) + r" ", [
-                ("mappings", lib.value_mapping([
-                    (0, "—", "dark-gray"),
-                    (1, BIT_LABELS[bit_name], bit_color),
-                ])),
-            ])
+            lib.override_by_regex(
+                r"^" + re.escape(bit_name) + r" ",
+                [
+                    (
+                        "mappings",
+                        lib.value_mapping(
+                            [
+                                (0, "—", "dark-gray"),
+                                (1, BIT_LABELS[bit_name], bit_color),
+                            ]
+                        ),
+                    ),
+                ],
+            )
         )
     panels.append(
         lib.state_timeline(
-            42, "Clock-event reasons (bitmask decode)", 0, 9, 16, 8,
+            42,
+            "Clock-event reasons (bitmask decode)",
+            0,
+            9,
+            16,
+            8,
             bit_targets,
             overrides=bit_overrides,
             description="All 11 bits of DCGM_FI_DEV_CLOCKS_EVENT_REASONS, decoded one boolean lane per bit "
-                        "per GPU via floor(x/BIT) mod 2 (Prometheus has no bitwise-AND). Gray lanes are "
-                        "benign/informational. Blue lanes (Board Limit, Reliability) are "
-                        "'clock limit, informational' bits -- deliberately NOT red and NOT counted toward row "
-                        "A's 'GPUs throttled now' tile. Yellow (SW Power Cap) is real throttling "
-                        "(still counted toward the 'throttled now' tile) but expected whenever a GPU runs at "
-                        "its configured power limit under full load, not a fault -- deliberately not red. "
-                        "Red lanes are the 4 remaining real-throttle reasons that do indicate a problem "
-                        "(HW Slowdown, SW/HW Thermal, HW Power Brake). Legend includes host+GPU so multiple "
-                        "selected GPUs' lanes for the same bit stay distinct instead of visually merging "
-                        "(state-timeline's mergeValues would otherwise blend different GPUs' histories into "
-                        "one lane).",
+            "per GPU via floor(x/BIT) mod 2 (Prometheus has no bitwise-AND). Gray lanes are "
+            "benign/informational. Blue lanes (Board Limit, Reliability) are "
+            "'clock limit, informational' bits -- deliberately NOT red and NOT counted toward row "
+            "A's 'GPUs throttled now' tile. Yellow (SW Power Cap) is real throttling "
+            "(still counted toward the 'throttled now' tile) but expected whenever a GPU runs at "
+            "its configured power limit under full load, not a fault -- deliberately not red. "
+            "Red lanes are the 4 remaining real-throttle reasons that do indicate a problem "
+            "(HW Slowdown, SW/HW Thermal, HW Power Brake). Legend includes host+GPU so multiple "
+            "selected GPUs' lanes for the same bit stay distinct instead of visually merging "
+            "(state-timeline's mergeValues would otherwise blend different GPUs' histories into "
+            "one lane).",
         )
     )
     panels.append(
         lib.stat(
-            43, "Auto-boost enabled", 16, 9, 8, 8,
+            43,
+            "Auto-boost enabled",
+            16,
+            9,
+            8,
+            8,
             [lib.target(lib.per_gpu(f"DCGM_FI_DEV_CLOCKS_AUTOBOOST_MODE{f}"), legend=std, ref_id="A", instant=True)],
             unit_id="none",
             mappings=lib.bool_config_mappings(off_text="Disabled", on_text="Enabled"),
             thresholds_steps=lib.no_thresholds(),
             no_value="Not supported on this GPU",
             description="GPU Boost auto-boost setting -- configuration state, not a fault. Not populated on "
-                        "GPUs without auto-boost support (confirmed empty on this environment's RTX PRO 4000 "
-                        "Blackwell).",
+            "GPUs without auto-boost support (confirmed empty on this environment's RTX PRO 4000 "
+            "Blackwell).",
         )
     )
 
     # -- Sub-row 3 (relative y=17, h=8) --------------------------------------
     throttle_targets = [
         lib.target(
-            lib.per_gpu(f"rate({field}{f}[$__rate_interval])/1e9"), legend=f"{legend} · {std}", ref_id=rid,
+            lib.per_gpu(f"rate({field}{f}[$__rate_interval])/1e9"),
+            legend=f"{legend} · {std}",
+            ref_id=rid,
         )
-        for rid, (field, legend) in zip(lib._excel_ref_ids(len(THROTTLE_NS_FIELDS)), THROTTLE_NS_FIELDS)
+        for rid, (field, legend) in zip(lib._excel_ref_ids(len(THROTTLE_NS_FIELDS)), THROTTLE_NS_FIELDS, strict=True)
     ]
     throttle_ns_overrides = []
     for _field, legend in THROTTLE_NS_FIELDS:
@@ -225,118 +262,177 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         )
     panels.append(
         lib.timeseries(
-            44, "Throttle time by reason (rate)", 0, 17, 12, 8,
+            44,
+            "Throttle time by reason (rate)",
+            0,
+            17,
+            12,
+            8,
             throttle_targets,
-            unit_id="percentunit", min_=0, max_=1,
+            unit_id="percentunit",
+            min_=0,
+            max_=1,
             stacked=False,
             thresholds_steps=lib.no_thresholds("gray"),
             overrides=throttle_ns_overrides,
-            legend_mode="table", legend_placement="right", legend_calcs=["lastNotNull"],
-            legend_sort_by="Last *", legend_sort_desc=True,
+            legend_mode="table",
+            legend_placement="right",
+            legend_calcs=["lastNotNull"],
+            legend_sort_by="Last *",
+            legend_sort_desc=True,
             description="Fraction of the selected window each reason's *_NS counter was active -- "
-                        "rate(...)/1e9 converts a cumulative ns counter into a 0-1 'fraction of time' value. "
-                        "Not stacked: these reasons can be simultaneously nonzero, and a stacked chart draws "
-                        "a zero-valued series' boundary line at the cumulative height of the series below it "
-                        "rather than at its own (zero) value, which can visually paint an entirely different "
-                        "reason's color across the top of the stack -- unstacked lines show each reason's "
-                        "own true value with no such misattribution. Each line's color matches panel 42's "
-                        "bitmask lane for the same reason (yellow SW Power Cap, gray Sync Boost/benign, red "
-                        "SW/HW Thermal and HW Power Brake) rather than an arbitrary palette-by-order color. "
-                        "See panel 98 for the same signal integrated over the whole range instead of shown "
-                        "as an instantaneous rate.",
+            "rate(...)/1e9 converts a cumulative ns counter into a 0-1 'fraction of time' value. "
+            "Not stacked: these reasons can be simultaneously nonzero, and a stacked chart draws "
+            "a zero-valued series' boundary line at the cumulative height of the series below it "
+            "rather than at its own (zero) value, which can visually paint an entirely different "
+            "reason's color across the top of the stack -- unstacked lines show each reason's "
+            "own true value with no such misattribution. Each line's color matches panel 42's "
+            "bitmask lane for the same reason (yellow SW Power Cap, gray Sync Boost/benign, red "
+            "SW/HW Thermal and HW Power Brake) rather than an arbitrary palette-by-order color. "
+            "See panel 98 for the same signal integrated over the whole range instead of shown "
+            "as an instantaneous rate.",
         )
     )
     panels.append(
         lib.timeseries(
-            45, "Idle time (LOW_UTIL_VIOLATION)", 12, 17, 6, 8,
-            [lib.target(lib.per_gpu(f"rate(DCGM_FI_DEV_LOW_UTIL_VIOLATION{f}[$__rate_interval])/1e9"), legend=std, ref_id="A")],
-            unit_id="percentunit", min_=0, max_=1,
+            45,
+            "Idle time (LOW_UTIL_VIOLATION)",
+            12,
+            17,
+            6,
+            8,
+            [
+                lib.target(
+                    lib.per_gpu(f"rate(DCGM_FI_DEV_LOW_UTIL_VIOLATION{f}[$__rate_interval])/1e9"),
+                    legend=std,
+                    ref_id="A",
+                )
+            ],
+            unit_id="percentunit",
+            min_=0,
+            max_=1,
             thresholds_steps=lib.no_thresholds("blue"),
             description="Fraction of the window spent in a low-utilization power-saving clock state -- a "
-                        "large or near-1.0 value here on an idle GPU is the expected, healthy steady state, "
-                        "not a fault.",
+            "large or near-1.0 value here on an idle GPU is the expected, healthy steady state, "
+            "not a fault.",
         )
     )
     fault_targets = [
         lib.target(
-            lib.per_gpu(f"rate({field}{f}[$__rate_interval])/1e9"), legend=f"{legend} · {std}", ref_id=rid,
+            lib.per_gpu(f"rate({field}{f}[$__rate_interval])/1e9"),
+            legend=f"{legend} · {std}",
+            ref_id=rid,
         )
-        for rid, (field, legend) in zip(lib._excel_ref_ids(len(FAULT_VIOLATION_FIELDS)), FAULT_VIOLATION_FIELDS)
+        for rid, (field, legend) in zip(
+            lib._excel_ref_ids(len(FAULT_VIOLATION_FIELDS)), FAULT_VIOLATION_FIELDS, strict=True
+        )
     ]
     panels.append(
         lib.timeseries(
-            46, "Fault violations (rate)", 18, 17, 6, 8,
+            46,
+            "Fault violations (rate)",
+            18,
+            17,
+            6,
+            8,
             fault_targets,
-            unit_id="percentunit", min_=0, max_=1,
+            unit_id="percentunit",
+            min_=0,
+            max_=1,
             thresholds_steps=lib.thresholds([(0, "green"), (1e-6, "red")]),
             overrides=[
                 lib.override_by_regex(r"^" + re.escape(label) + r" ", [("color", lib.fixed_color(color))])
                 for label, color in FAULT_INFO_ONLY.items()
             ],
-            legend_mode="table", legend_placement="right", legend_calcs=["lastNotNull"],
-            legend_sort_by="Last *", legend_sort_desc=True,
+            legend_mode="table",
+            legend_placement="right",
+            legend_calcs=["lastNotNull"],
+            legend_sort_by="Last *",
+            legend_sort_desc=True,
             description="Power and Thermal are real-fault alarm series (green@0/red@>0) via the older "
-                        "cumulative *_VIOLATION field family (NANOSECONDS, not microseconds). Sync Boost/"
-                        "Board Limit/Reliability are shown alongside for context only, fixed-color (gray/"
-                        "blue, never red) and excluded from the alarm threshold -- "
-                        "trust panel 42's live bitmask over this older counter family for those two reasons.",
+            "cumulative *_VIOLATION field family (NANOSECONDS, not microseconds). Sync Boost/"
+            "Board Limit/Reliability are shown alongside for context only, fixed-color (gray/"
+            "blue, never red) and excluded from the alarm threshold -- "
+            "trust panel 42's live bitmask over this older counter family for those two reasons.",
         )
     )
 
     # -- Sub-row 4 (relative y=25, h=8) --
     duty_targets = [
         lib.target(
-            f"sum(increase({field}{f}[$__range]))/1e9/$__range_s", legend=legend, ref_id=rid, instant=True,
+            f"sum(increase({field}{f}[$__range]))/1e9/$__range_s",
+            legend=legend,
+            ref_id=rid,
+            instant=True,
         )
-        for rid, (field, legend) in zip(lib._excel_ref_ids(len(THROTTLE_NS_FIELDS)), THROTTLE_NS_FIELDS)
+        for rid, (field, legend) in zip(lib._excel_ref_ids(len(THROTTLE_NS_FIELDS)), THROTTLE_NS_FIELDS, strict=True)
     ]
     panels.append(
         lib.bargauge(
-            98, "Fraction of Range Throttled (by reason)", 0, 25, 18, 8,
+            98,
+            "Fraction of Range Throttled (by reason)",
+            0,
+            25,
+            18,
+            8,
             duty_targets,
-            unit_id="percentunit", min_=0, max_=1,
+            unit_id="percentunit",
+            min_=0,
+            max_=1,
             thresholds_steps=lib.thresholds([(0, "green"), (0.05, "red")]),
             color={"mode": "thresholds"},
-            display_mode="gradient", orientation="horizontal",
+            display_mode="gradient",
+            orientation="horizontal",
             overrides=[
                 lib.override_by_name("Sync Boost", [("color", lib.fixed_color("gray"))]),
-                lib.override_by_name("SW Power Cap", [
-                    ("thresholds", lib.thresholds([(0, "green"), (0.05, "yellow"), (0.5, "orange")])),
-                ]),
+                lib.override_by_name(
+                    "SW Power Cap",
+                    [
+                        ("thresholds", lib.thresholds([(0, "green"), (0.05, "yellow"), (0.5, "orange")])),
+                    ],
+                ),
             ],
             description="Completeness gap: panels 44/46 only show an instantaneous throttle *rate* -- there "
-                        "was no 'what fraction of my selected time range was this GPU actually throttled' "
-                        "summary for a capacity-review/postmortem workflow ('was this run power-capped for "
-                        "40% of it, or one 30s spike'). Same 5 *_NS counters as panel 44, integrated over "
-                        "$__range instead of an instantaneous rate. Sync Boost stays fixed gray "
-                        "(informational, per panel 44's own documented rationale), never red. SW Power Cap "
-                        "gets its own, less alarming threshold -- yellow above 5% of the "
-                        "range, orange above 50% -- since running at the power limit under full load is "
-                        "expected GPU behavior, not a fault; the other 3 reasons here (SW Thermal, HW "
-                        "Thermal, HW Power Brake) keep the shared green@0/red@>5% threshold, since any "
-                        "nonzero time in one of those does indicate a real problem.",
+            "was no 'what fraction of my selected time range was this GPU actually throttled' "
+            "summary for a capacity-review/postmortem workflow ('was this run power-capped for "
+            "40% of it, or one 30s spike'). Same 5 *_NS counters as panel 44, integrated over "
+            "$__range instead of an instantaneous rate. Sync Boost stays fixed gray "
+            "(informational, per panel 44's own documented rationale), never red. SW Power Cap "
+            "gets its own, less alarming threshold -- yellow above 5% of the "
+            "range, orange above 50% -- since running at the power limit under full load is "
+            "expected GPU behavior, not a fault; the other 3 reasons here (SW Thermal, HW "
+            "Thermal, HW Power Brake) keep the shared green@0/red@>5% threshold, since any "
+            "nonzero time in one of those does indicate a real problem.",
         )
     )
     panels.append(
         lib.stat(
-            99, "Time at High Performance (P0-P2)", 18, 25, 6, 8,
-            [lib.target(
-                lib.per_gpu(f"avg_over_time((DCGM_FI_DEV_PSTATE{f} <= bool 2)[$__range:])", agg="avg"),
-                ref_id="A", instant=True,
-            )],
+            99,
+            "Time at High Performance (P0-P2)",
+            18,
+            25,
+            6,
+            8,
+            [
+                lib.target(
+                    lib.per_gpu(f"avg_over_time((DCGM_FI_DEV_PSTATE{f} <= bool 2)[$__range:])", agg="avg"),
+                    ref_id="A",
+                    instant=True,
+                )
+            ],
             unit_id="percentunit",
             thresholds_steps=lib.thresholds([(0, "blue"), (0.3, "green")]),
             text_mode="value",
             graph_mode="area",
             description="Completeness gap: fraction of the selected range this GPU spent in a "
-                        "high-performance P-state (P0-P2) rather than idling in a lower one -- more boost "
-                        "time is good (busy GPU), not a fault, hence the blue(idle)->green(busy) activity "
-                        "palette rather than red-is-bad. Complements panel 41's P-State timeline with a "
-                        "single range-summary number. Wrapped `avg by (identity) (avg_over_time(...))`: if a "
-                        "driver/VBIOS upgrade split this GPU's series mid-range, each half's own "
-                        "avg_over_time is only a partial-range average, and avg-of-averages weights both "
-                        "halves equally regardless of how much of the range each actually covered -- "
-                        "approximate in that specific window, exact otherwise (see lib.per_gpu()'s docstring).",
+            "high-performance P-state (P0-P2) rather than idling in a lower one -- more boost "
+            "time is good (busy GPU), not a fault, hence the blue(idle)->green(busy) activity "
+            "palette rather than red-is-bad. Complements panel 41's P-State timeline with a "
+            "single range-summary number. Wrapped `avg by (identity) (avg_over_time(...))`: if a "
+            "driver/VBIOS upgrade split this GPU's series mid-range, each half's own "
+            "avg_over_time is only a partial-range average, and avg-of-averages weights both "
+            "halves equally regardless of how much of the range each actually covered -- "
+            "approximate in that specific window, exact otherwise (see lib.per_gpu()'s docstring).",
         )
     )
 

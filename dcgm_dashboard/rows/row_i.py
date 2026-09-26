@@ -45,23 +45,29 @@ aggregated with `agg="sum"` (a range-integrating counter -- see
 lib.per_gpu()'s docstring), not the default "max", since the old and new
 series each cover only part of the range.
 """
-from typing import Any, Dict, List, Tuple
+
+from typing import Any
 
 from .. import lib
 
 
-def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     f = ctx.filter_all
     std = ctx.legend_std
     row_def = lib.row(63, "PCIe", collapsed=False)
 
-    panels: List[Dict[str, Any]] = []
+    panels: list[dict[str, Any]] = []
 
     # -- Sub-row 1 (rel y=1, h=8) --------------------------------------
 
     panels.append(
         lib.timeseries(
-            64, "PCIe throughput (real, PROF)", 0, 1, 16, 8,
+            64,
+            "PCIe throughput (real, PROF)",
+            0,
+            1,
+            16,
+            8,
             [
                 lib.target(lib.per_gpu(f"DCGM_FI_PROF_PCIE_TX_BYTES{f}"), legend=f"TX · {std}", ref_id="A"),
                 lib.target(lib.per_gpu(f"DCGM_FI_PROF_PCIE_RX_BYTES{f}"), legend=f"RX · {std}", ref_id="B"),
@@ -69,31 +75,40 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
             unit_id="Bps",
             thresholds_steps=lib.no_thresholds("blue"),
             description="True PCIe TX/RX byte throughput measured by DCGM's profiling counters, including "
-                        "protocol overhead -- both fields are already a rate (bytes/s), never wrap them in "
-                        "rate()/increase(). Superior to nvidia-smi-based dashboards, which can only estimate "
-                        "PCIe throughput from link-speed x utilization%. Informational activity metric: "
-                        "busier is normal, not a fault, hence no red threshold.",
+            "protocol overhead -- both fields are already a rate (bytes/s), never wrap them in "
+            "rate()/increase(). Superior to nvidia-smi-based dashboards, which can only estimate "
+            "PCIe throughput from link-speed x utilization%. Informational activity metric: "
+            "busier is normal, not a fault, hence no red threshold.",
         )
     )
     panels.append(
         lib.stat(
-            65, "PCIe total bytes moved (this range)", 16, 1, 8, 8,
+            65,
+            "PCIe total bytes moved (this range)",
+            16,
+            1,
+            8,
+            8,
             [
                 lib.target(
                     lib.per_gpu(f"increase(DCGM_FI_PROF_PCIE_TX_BYTES_TOTAL{f}[$__range])", agg="sum"),
-                    legend=f"TX · {std}", ref_id="A", instant=True,
+                    legend=f"TX · {std}",
+                    ref_id="A",
+                    instant=True,
                 ),
                 lib.target(
                     lib.per_gpu(f"increase(DCGM_FI_PROF_PCIE_RX_BYTES_TOTAL{f}[$__range])", agg="sum"),
-                    legend=f"RX · {std}", ref_id="B", instant=True,
+                    legend=f"RX · {std}",
+                    ref_id="B",
+                    instant=True,
                 ),
             ],
             unit_id="bytes",
             thresholds_steps=lib.no_thresholds("gray"),
             description="Cumulative PCIe bytes moved over the dashboard's selected time range, computed with "
-                        "increase() over DCGM's ever-growing PCIe TX/RX byte counters -- a counter-based "
-                        "cross-check of panel 64's instantaneous rate (the two should agree: this stat "
-                        "roughly equals panel 64's average rate times the range length).",
+            "increase() over DCGM's ever-growing PCIe TX/RX byte counters -- a counter-based "
+            "cross-check of panel 64's instantaneous rate (the two should agree: this stat "
+            "roughly equals panel 64's average rate times the range length).",
         )
     )
 
@@ -121,7 +136,12 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     ok_map_width = lib.value_mapping([(0, "Downgraded", "red"), (1, "OK", "green")])
 
     panel_66 = lib.table_join(
-        66, "PCIe link generation/width", 0, 9, 24, 8,
+        66,
+        "PCIe link generation/width",
+        0,
+        9,
+        24,
+        8,
         exprs=[
             link_gen,
             max_link_gen,
@@ -132,22 +152,48 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         ],
         identity_fields={"hostname": "Host", "gpu": "GPU"},
         noise_fields=[
-            "Time", "job", "device", "host", "__name__", "instance", "modelName", "pci_bus_id",
-            "DCGM_FI_DEV_GPU_BRAND", "DCGM_FI_DEV_BOARD_SERIAL", "DCGM_FI_DRIVER_VERSION",
-            "DCGM_FI_DEV_VBIOS_VERSION", "DCGM_FI_SYSTEM_NVML_VERSION",
-            "DCGM_FI_CUDA_GPU_VISIBLE_DEVICES", "DCGM_FI_DEV_FABRIC_CLUSTER_UUID", "DCGM_FI_IMEX_DOMAIN_STATUS",
+            "Time",
+            "job",
+            "device",
+            "host",
+            "__name__",
+            "instance",
+            "modelName",
+            "pci_bus_id",
+            "DCGM_FI_DEV_GPU_BRAND",
+            "DCGM_FI_DEV_BOARD_SERIAL",
+            "DCGM_FI_DRIVER_VERSION",
+            "DCGM_FI_DEV_VBIOS_VERSION",
+            "DCGM_FI_SYSTEM_NVML_VERSION",
+            "DCGM_FI_CUDA_GPU_VISIBLE_DEVICES",
+            "DCGM_FI_DEV_FABRIC_CLUSTER_UUID",
+            "DCGM_FI_IMEX_DOMAIN_STATUS",
         ],
         value_renames=[
-            "PCIe Gen (current)", "PCIe Gen (max)", "Link Width (current)", "Link Width (max)",
-            "Gen OK (range-checked)", "Width OK",
+            "PCIe Gen (current)",
+            "PCIe Gen (max)",
+            "Link Width (current)",
+            "Link Width (max)",
+            "Gen OK (range-checked)",
+            "Width OK",
         ],
         overrides=[
-            lib.override_by_name("Gen OK (range-checked)", [
-                ("mappings", ok_map_gen), ("custom.cellOptions", {"type": "color-background"}), ("custom.width", 170),
-            ]),
-            lib.override_by_name("Width OK", [
-                ("mappings", ok_map_width), ("custom.cellOptions", {"type": "color-background"}), ("custom.width", 110),
-            ]),
+            lib.override_by_name(
+                "Gen OK (range-checked)",
+                [
+                    ("mappings", ok_map_gen),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 170),
+                ],
+            ),
+            lib.override_by_name(
+                "Width OK",
+                [
+                    ("mappings", ok_map_width),
+                    ("custom.cellOptions", {"type": "color-background"}),
+                    ("custom.width", 110),
+                ],
+            ),
             lib.override_by_name("Host", [("custom.width", 120)]),
             lib.override_by_name("GPU", [("custom.width", 60)]),
             lib.override_by_name("PCIe Gen (current)", [("custom.width", 150)]),
@@ -156,15 +202,15 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
             lib.override_by_name("Link Width (max)", [("custom.width", 140)]),
         ],
         description="Current negotiated PCIe generation/width against the maximum this GPU and slot both "
-                    "support. 'Gen OK' is range-gated (`max_over_time(current[$__range]) >= max`) "
-                    "rather than an instant comparison -- PCIe ASPM/dynamic link-speed power management "
-                    "legitimately drops the link to Gen1 at idle on every modern NVIDIA GPU (confirmed live "
-                    "on this environment's idle GPUs), so an instant check flagged every healthy idle GPU as "
-                    "'Downgraded' permanently, not occasionally. The raw, un-gated 'PCIe Gen (current)' "
-                    "column is kept alongside so the idle Gen1 reading is still visible, just not colored as "
-                    "a fault. 'Width OK' stays an instant check on purpose: a real x8-on-an-x16-slot "
-                    "downgrade does not fluctuate with P-state the way Gen does, and should stay flagged "
-                    "immediately.",
+        "support. 'Gen OK' is range-gated (`max_over_time(current[$__range]) >= max`) "
+        "rather than an instant comparison -- PCIe ASPM/dynamic link-speed power management "
+        "legitimately drops the link to Gen1 at idle on every modern NVIDIA GPU (confirmed live "
+        "on this environment's idle GPUs), so an instant check flagged every healthy idle GPU as "
+        "'Downgraded' permanently, not occasionally. The raw, un-gated 'PCIe Gen (current)' "
+        "column is kept alongside so the idle Gen1 reading is still visible, just not colored as "
+        "a fault. 'Width OK' stays an instant check on purpose: a real x8-on-an-x16-slot "
+        "downgrade does not fluctuate with P-state the way Gen does, and should stay flagged "
+        "immediately.",
     )
     panels.append(panel_66)
 
@@ -172,19 +218,32 @@ def build(ctx: lib.RowContext) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
 
     panels.append(
         lib.timeseries(
-            67, "PCIe replay & correctable-error rate", 0, 17, 24, 8,
+            67,
+            "PCIe replay & correctable-error rate",
+            0,
+            17,
+            24,
+            8,
             [
-                lib.target(lib.per_gpu(f"increase(DCGM_FI_DEV_PCIE_REPLAY_COUNTER{f}[$__rate_interval])"), legend=f"Replays · {std}", ref_id="A"),
-                lib.target(lib.per_gpu(f"increase(DCGM_FI_DEV_PCIE_CORRECTABLE_ERROR_TOTAL{f}[$__rate_interval])"), legend=f"Correctable errors · {std}", ref_id="B"),
+                lib.target(
+                    lib.per_gpu(f"increase(DCGM_FI_DEV_PCIE_REPLAY_COUNTER{f}[$__rate_interval])"),
+                    legend=f"Replays · {std}",
+                    ref_id="A",
+                ),
+                lib.target(
+                    lib.per_gpu(f"increase(DCGM_FI_DEV_PCIE_CORRECTABLE_ERROR_TOTAL{f}[$__rate_interval])"),
+                    legend=f"Correctable errors · {std}",
+                    ref_id="B",
+                ),
             ],
             unit_id="short",
             thresholds_steps=lib.thresholds([(0, "green"), (1, "red")]),
             description="increase() of the cumulative PCIe link-layer replay (retry) counter and AER "
-                        "correctable-error counter over each windowed interval -- never the raw ever-growing "
-                        "counter with a static threshold, which could only turn red once and then stay red "
-                        "forever. Any nonzero rate here is worth investigating: marginal signal integrity, a "
-                        "loose riser/cable, or a failing slot. Distinct signals: replays are link-layer "
-                        "retries, AER correctable errors are a separate PCIe-spec error-reporting mechanism.",
+            "correctable-error counter over each windowed interval -- never the raw ever-growing "
+            "counter with a static threshold, which could only turn red once and then stay red "
+            "forever. Any nonzero rate here is worth investigating: marginal signal integrity, a "
+            "loose riser/cable, or a failing slot. Distinct signals: replays are link-layer "
+            "retries, AER correctable errors are a separate PCIe-spec error-reporting mechanism.",
         )
     )
 

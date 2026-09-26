@@ -3,8 +3,9 @@
 # Copyright (C) 2026 Giovanni Manzoni
 """Import a dashboard JSON into the local test Grafana.
 
-Usage: python3 tools/import_local.py <json_path> [--uid-suffix X] [--grafana-url URL]
-                                      [--user admin] [--password admin]
+Usage: uv run tools/import_local.py <json_path> [--uid-suffix X] [--grafana-url URL]
+                                     [--datasource-uid UID] [--user admin] [--password admin]
+                                     [--folder-id N]
 
 Prints the dashboard URL on success. Non-zero exit on any failure (network error,
 non-2xx response, or an "success" flag missing from the response body).
@@ -15,7 +16,6 @@ the datasource uid "prom-local" (this environment's provisioned Prometheus datas
 so a scaffold/dev import never collides with (or overwrites) a "real" import of the
 same dashboard under its bare uid.
 """
-from __future__ import annotations
 
 import argparse
 import base64
@@ -65,7 +65,9 @@ def main() -> int:
     body = json.dumps(payload).encode("utf-8")
     auth = base64.b64encode(f"{args.user}:{args.password}".encode()).decode()
     req = urllib.request.Request(
-        url, data=body, method="POST",
+        url,
+        data=body,
+        method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"},
     )
 

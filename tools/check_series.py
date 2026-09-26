@@ -5,8 +5,8 @@
 over a window and check whether it renders two or more identically-labeled series.
 
 Usage:
-    python3 tools/check_series.py <json_path> [--prom URL] [--start RFC3339|epoch]
-                                   [--end RFC3339|epoch] [--step 30s] [--panels 1,7,21]
+    uv run tools/check_series.py <json_path> [--prom URL] [--start RFC3339|epoch]
+                                  [--end RFC3339|epoch] [--step 30s] [--panels 1,7,21]
 
 Why a RANGE query, not check_queries.py's instant one: Prometheus identifies a
 series by its full label set. When dcgm-exporter's custom-counters.csv "label"-type
@@ -43,7 +43,6 @@ Default window: 2026-09-26T03:30:00+02:00 (shortly before the dcgm-exporter CSV
 label-set change) to now -- covers the restart described in this project's
 change-log.
 """
-from __future__ import annotations
 
 import argparse
 import datetime
@@ -80,7 +79,7 @@ def parse_time(value: str) -> float:
         pass
     dt = datetime.datetime.fromisoformat(value)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
+        dt = dt.replace(tzinfo=datetime.UTC)
     return dt.timestamp()
 
 
@@ -123,8 +122,13 @@ def label_values(prom_url: str, label: str, match_expr: str) -> list:
     query. `urllib` has no query-string helper that avoids POST-only quirks here,
     so the URL is built by hand rather than reusing check_series.py's POST-shaped
     urlopen(Request(...)) pattern used elsewhere."""
-    url = prom_url.rstrip("/") + "/api/v1/label/" + urllib.parse.quote(label, safe="") + "/values?" \
+    url = (
+        prom_url.rstrip("/")
+        + "/api/v1/label/"
+        + urllib.parse.quote(label, safe="")
+        + "/values?"
         + urllib.parse.urlencode({"match[]": match_expr})
+    )
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             body = json.loads(resp.read().decode("utf-8"))
@@ -155,7 +159,9 @@ def fetch_dcgm_job_instance_regex(prom_url: str) -> tuple:
     return job_regex, instance_regex
 
 
-def substitute(expr: str, textbox_defaults: dict, gpu_equals_value: str, builtin_subs: dict, query_var_subs: dict) -> str:
+def substitute(
+    expr: str, textbox_defaults: dict, gpu_equals_value: str, builtin_subs: dict, query_var_subs: dict
+) -> str:
     expr = re.sub(r'UUID="\$\{?gpu\}?"', f'UUID="{gpu_equals_value}"', expr)
     for token, value in builtin_subs.items():
         expr = expr.replace(token, value)
@@ -201,7 +207,10 @@ def query_range(prom_url: str, expr: str, start: float, end: float, step: int) -
     and detail_or_series is an error message (ERROR) or a list of metric label
     dicts, one per returned series (OK/EMPTY)."""
     params = {
-        "query": expr, "start": f"{start:.3f}", "end": f"{end:.3f}", "step": str(step),
+        "query": expr,
+        "start": f"{start:.3f}",
+        "end": f"{end:.3f}",
+        "step": str(step),
     }
     url = prom_url.rstrip("/") + "/api/v1/query_range?" + urllib.parse.urlencode(params)
     try:
@@ -228,8 +237,13 @@ def query_range(prom_url: str, expr: str, start: float, end: float, step: int) -
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("json_path")
-    ap.add_argument("--prom", "--prom-url", dest="prom", default=DEFAULT_PROM_URL,
-                     help=f"Prometheus base URL (default: {DEFAULT_PROM_URL})")
+    ap.add_argument(
+        "--prom",
+        "--prom-url",
+        dest="prom",
+        default=DEFAULT_PROM_URL,
+        help=f"Prometheus base URL (default: {DEFAULT_PROM_URL})",
+    )
     ap.add_argument("--start", default=DEFAULT_START, help=f"RFC3339 or epoch (default: {DEFAULT_START})")
     ap.add_argument("--end", default="now", help="RFC3339, epoch, or 'now' (default: now)")
     ap.add_argument("--step", default="30s", help="range-query step, e.g. 30s/2m (default: 30s)")
@@ -240,7 +254,7 @@ def main() -> int:
         dashboard = json.load(f)
 
     start = parse_time(args.start)
-    end = datetime.datetime.now(datetime.timezone.utc).timestamp() if args.end == "now" else parse_time(args.end)
+    end = datetime.datetime.now(datetime.UTC).timestamp() if args.end == "now" else parse_time(args.end)
     step = parse_step_seconds(args.step)
     if end <= start:
         print(f"error: --end ({end}) <= --start ({start})", file=sys.stderr)
@@ -262,8 +276,8 @@ def main() -> int:
     query_var_subs = {"job": job_regex, "instance": instance_regex, "gpu": ".*"}
 
     print(
-        f"# window: {datetime.datetime.fromtimestamp(start, datetime.timezone.utc).isoformat()} .. "
-        f"{datetime.datetime.fromtimestamp(end, datetime.timezone.utc).isoformat()} "
+        f"# window: {datetime.datetime.fromtimestamp(start, datetime.UTC).isoformat()} .. "
+        f"{datetime.datetime.fromtimestamp(end, datetime.UTC).isoformat()} "
         f"({range_seconds:.0f}s), step={step}s, prom={args.prom}\n"
         f"# $job -> '{job_regex}', $instance -> '{instance_regex}' (scoped to DCGM_FI_DEV_GPU_UTIL, "
         f"not a blanket '.*' -- see fetch_dcgm_job_instance_regex()'s docstring)",

@@ -4,7 +4,7 @@
 """Build the "NVIDIA GPU -- DCGM Ultimate Dashboard" Grafana JSON.
 
 Usage:
-    python3 build_dashboard.py [--out PATH] [--rows a,b,c,...]
+    uv run build_dashboard.py [--out PATH] [--rows a,b,c,...]
 
 Default output: "nvidia-dcgm-dashboard.json" next to this script.
 Row selection lets a row author build a dashboard containing only their row(s)
@@ -14,7 +14,6 @@ Output is deterministic: stable panel ids (fixed, not auto-assigned -- see
 dcgm_dashboard/CONVENTIONS.md's id-range table), stable key order (json.dump
 with sort_keys=True), pretty-printed with indent=2.
 """
-from __future__ import annotations
 
 import argparse
 import json
@@ -23,15 +22,36 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from dcgm_dashboard import lib  # noqa: E402
-from dcgm_dashboard.rows import (  # noqa: E402
-    row_a, row_b, row_c, row_d, row_e, row_f, row_g, row_h, row_i, row_j, row_k, row_l,
+from dcgm_dashboard import lib
+from dcgm_dashboard.rows import (
+    row_a,
+    row_b,
+    row_c,
+    row_d,
+    row_e,
+    row_f,
+    row_g,
+    row_h,
+    row_i,
+    row_j,
+    row_k,
+    row_l,
 )
 
 ROW_ORDER = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]
 ROW_MODULES = {
-    "a": row_a, "b": row_b, "c": row_c, "d": row_d, "e": row_e, "f": row_f,
-    "g": row_g, "h": row_h, "i": row_i, "j": row_j, "k": row_k, "l": row_l,
+    "a": row_a,
+    "b": row_b,
+    "c": row_c,
+    "d": row_d,
+    "e": row_e,
+    "f": row_f,
+    "g": row_g,
+    "h": row_h,
+    "i": row_i,
+    "j": row_j,
+    "k": row_k,
+    "l": row_l,
 }
 
 DASHBOARD_UID = "nvidia-dcgm-ultimate"
@@ -42,14 +62,18 @@ DEFAULT_OUT = pathlib.Path(__file__).resolve().parent / "nvidia-dcgm-dashboard.j
 def build_templating() -> list:
     return [
         lib.query_variable(
-            "job", "Job", 'label_values(DCGM_FI_DEV_GPU_UTIL, job)',
+            "job",
+            "Job",
+            "label_values(DCGM_FI_DEV_GPU_UTIL, job)",
         ),
         lib.query_variable(
-            "instance", "Instance",
+            "instance",
+            "Instance",
             'label_values(DCGM_FI_DEV_GPU_UTIL{job=~"$job"}, instance)',
         ),
         lib.query_variable(
-            "gpu", "GPU (UUID)",
+            "gpu",
+            "GPU (UUID)",
             'label_values(DCGM_FI_DEV_GPU_UTIL{job=~"$job", instance=~"$instance"}, UUID)',
         ),
         lib.textbox_variable("energy_price", "Energy price ($/kWh)", "0.25"),
@@ -118,7 +142,7 @@ def build_dashboard(selected_rows: list) -> dict:
             ]
         },
         "description": "Full-parity, DCGM-exporter-only successor to grafana.com dashboard 14574, "
-                        "plus PROF_* real activity, energy/cost, PCIe/NVLink byte counters, and RAS.",
+        "plus PROF_* real activity, energy/cost, PCIe/NVLink byte counters, and RAS.",
         "editable": True,
         "fiscalYearStartMonth": 0,
         "graphTooltip": 1,
@@ -146,9 +170,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default=str(DEFAULT_OUT), help="output JSON path")
     ap.add_argument(
-        "--rows", default=",".join(ROW_ORDER),
+        "--rows",
+        default=",".join(ROW_ORDER),
         help=f"comma-separated row letters to include, in {ROW_ORDER} order regardless of "
-             "the order given (default: all)",
+        "the order given (default: all)",
     )
     args = ap.parse_args()
 
@@ -167,10 +192,7 @@ def main() -> int:
         json.dump(dashboard, f, indent=2, sort_keys=True)
         f.write("\n")
 
-    panel_count = sum(
-        1 + len(p.get("panels", [])) if p.get("type") == "row" else 1
-        for p in dashboard["panels"]
-    )
+    panel_count = sum(1 + len(p.get("panels", [])) if p.get("type") == "row" else 1 for p in dashboard["panels"])
     print(f"wrote {out_path} ({panel_count} panels, rows: {','.join(selected_rows)})")
     return 0
 

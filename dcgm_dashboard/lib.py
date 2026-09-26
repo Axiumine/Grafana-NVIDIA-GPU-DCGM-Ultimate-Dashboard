@@ -19,12 +19,12 @@ label, for the few identity/inventory tables (GPU Inventory id 21, Fabric/IMEX/C
 
 See dcgm_dashboard/CONVENTIONS.md for how to write a row module.
 """
-from __future__ import annotations
 
 import copy
 import dataclasses
 import string
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Datasource, filters, legend
@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 DS_VAR = "${DS_PROMETHEUS}"
 
 
-def ds_ref() -> Dict[str, str]:
+def ds_ref() -> dict[str, str]:
     """A fresh datasource reference dict -- never share/mutate one instance."""
     return {"type": "prometheus", "uid": DS_VAR}
 
@@ -79,9 +79,17 @@ LEGEND_STD = "{{hostname}} GPU{{gpu}}"
 # physical GPU into one series -- a label a series doesn't have (e.g. these two
 # on a non-MIG GPU) simply doesn't contribute to the grouping key, so including
 # them is harmless everywhere else.
-GPU_ID_LABELS: Tuple[str, ...] = (
-    "job", "instance", "hostname", "gpu", "UUID", "modelName", "pci_bus_id", "device",
-    "GPU_I_ID", "GPU_I_PROFILE",
+GPU_ID_LABELS: tuple[str, ...] = (
+    "job",
+    "instance",
+    "hostname",
+    "gpu",
+    "UUID",
+    "modelName",
+    "pci_bus_id",
+    "device",
+    "GPU_I_ID",
+    "GPU_I_PROFILE",
 )
 
 
@@ -125,10 +133,10 @@ def per_gpu(expr: str, agg: str = "max", extra: Sequence[str] = ()) -> str:
 # purpose -- unlike per_gpu()'s aggregation, latest_per_gpu() does not collapse labels
 # away, so including more identity labels here would only narrow (and could break) the
 # topk grouping for no benefit.
-LATEST_GPU_ID_LABELS: Tuple[str, ...] = ("job", "instance", "UUID", "GPU_I_ID")
+LATEST_GPU_ID_LABELS: tuple[str, ...] = ("job", "instance", "UUID", "GPU_I_ID")
 
 
-def latest_per_gpu(expr: str, base: Optional[str] = None) -> str:
+def latest_per_gpu(expr: str, base: str | None = None) -> str:
     """Dedup helper for the small set of *identity/inventory* tables (GPU Inventory id
     21, Fabric Manager/IMEX/C2C id 87, MIG id 90) that intentionally keep a raw,
     unaggregated per-series query so they can display a CSV `label`-type field
@@ -205,7 +213,7 @@ def unit(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _excel_ref_ids(n: int) -> List[str]:
+def _excel_ref_ids(n: int) -> list[str]:
     """A, B, ..., Z, AA, AB, ... -- Grafana refIds are strings, any length is fine."""
     letters = string.ascii_uppercase
     out = []
@@ -225,12 +233,12 @@ def _excel_ref_ids(n: int) -> List[str]:
 
 def target(
     expr: str,
-    legend: Optional[str] = None,
+    legend: str | None = None,
     ref_id: str = "A",
     instant: bool = False,
     hide: bool = False,
     fmt: str = "time_series",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """No per-target "datasource" key: this dashboard is single-datasource throughout,
     and Grafana falls back to the panel-level datasource for any target that omits
     its own, so repeating a byte-identical datasource ref on every target would only
@@ -239,7 +247,7 @@ def target(
     identically, including the 12-target GPU Inventory join.
     tools/lint_dashboard.py's datasource check treats a missing target datasource
     as fine."""
-    t: Dict[str, Any] = {
+    t: dict[str, Any] = {
         "expr": expr,
         "refId": ref_id,
         "instant": instant,
@@ -252,12 +260,12 @@ def target(
     return t
 
 
-def make_targets(specs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def make_targets(specs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """specs: [{'expr':..., 'legend':..., 'instant':bool, 'hide':bool, 'format':...}, ...]
     refIds are auto-assigned A, B, C, ... in order."""
     ref_ids = _excel_ref_ids(len(specs))
     out = []
-    for rid, spec in zip(ref_ids, specs):
+    for rid, spec in zip(ref_ids, specs, strict=True):
         out.append(
             target(
                 spec["expr"],
@@ -276,7 +284,7 @@ def make_targets(specs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def thresholds(steps: Sequence[Tuple[Optional[float], str]], mode: str = "absolute") -> Dict[str, Any]:
+def thresholds(steps: Sequence[tuple[float | None, str]], mode: str = "absolute") -> dict[str, Any]:
     """steps: [(None, 'green'), (75, 'yellow'), (85, 'red')] -- first value forced to None
     (Grafana's base step) regardless of what's passed."""
     out_steps = []
@@ -285,19 +293,19 @@ def thresholds(steps: Sequence[Tuple[Optional[float], str]], mode: str = "absolu
     return {"mode": mode, "steps": out_steps}
 
 
-def no_thresholds(color: str = "gray") -> Dict[str, Any]:
+def no_thresholds(color: str = "gray") -> dict[str, Any]:
     """A single flat "informational, no real threshold" step. Every panel in this
     dashboard should have either a real threshold or an explicit informational-only
     one, rather than leaving fieldConfig.defaults.thresholds unset."""
     return {"mode": "absolute", "steps": [{"color": color, "value": None}]}
 
 
-def value_mapping(entries: Sequence[Tuple[Any, str, Optional[str]]]) -> List[Dict[str, Any]]:
+def value_mapping(entries: Sequence[tuple[Any, str, str | None]]) -> list[dict[str, Any]]:
     """entries: [(raw_value, text, color_or_None), ...] -> one Grafana 'value'-type mapping
     covering all entries (this is how the Grafana UI itself emits multi-value mappings)."""
-    options: Dict[str, Any] = {}
+    options: dict[str, Any] = {}
     for i, (value, text, color) in enumerate(entries):
-        entry: Dict[str, Any] = {"text": text, "index": i}
+        entry: dict[str, Any] = {"text": text, "index": i}
         if color is not None:
             entry["color"] = color
         options[str(value)] = entry
@@ -305,22 +313,22 @@ def value_mapping(entries: Sequence[Tuple[Any, str, Optional[str]]]) -> List[Dic
 
 
 def range_mapping(
-    frm: Optional[float], to: Optional[float], text: str, color: Optional[str] = None, index: int = 0
-) -> Dict[str, Any]:
-    result: Dict[str, Any] = {"text": text, "index": index}
+    frm: float | None, to: float | None, text: str, color: str | None = None, index: int = 0
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"text": text, "index": index}
     if color is not None:
         result["color"] = color
     return {"type": "range", "options": {"from": frm, "to": to, "result": result}}
 
 
-def override_by_name(field_name: str, properties: Sequence[Tuple[str, Any]]) -> Dict[str, Any]:
+def override_by_name(field_name: str, properties: Sequence[tuple[str, Any]]) -> dict[str, Any]:
     return {
         "matcher": {"id": "byName", "options": field_name},
         "properties": [{"id": pid, "value": pval} for pid, pval in properties],
     }
 
 
-def override_by_regex(pattern: str, properties: Sequence[Tuple[str, Any]]) -> Dict[str, Any]:
+def override_by_regex(pattern: str, properties: Sequence[tuple[str, Any]]) -> dict[str, Any]:
     """Field override matching a display-name regex.
 
     Grafana's `byRegexp` matcher (`stringToJsRegex`, Grafana 13.2.2) only treats the
@@ -339,7 +347,7 @@ def override_by_regex(pattern: str, properties: Sequence[Tuple[str, Any]]) -> Di
     }
 
 
-def fixed_color(color: str) -> Dict[str, Any]:
+def fixed_color(color: str) -> dict[str, Any]:
     return {"mode": "fixed", "fixedColor": color}
 
 
@@ -348,22 +356,22 @@ def fixed_color(color: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def transformation(tid: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def transformation(tid: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"id": tid, "options": options or {}}
 
 
-def transform_join_by_field(field: str, mode: str = "outer") -> Dict[str, Any]:
+def transform_join_by_field(field: str, mode: str = "outer") -> dict[str, Any]:
     return transformation("joinByField", {"byField": field, "mode": mode})
 
 
 def transform_organize(
-    exclude: Optional[Sequence[str]] = None,
-    rename: Optional[Dict[str, str]] = None,
-    order: Optional[Sequence[str]] = None,
-) -> Dict[str, Any]:
-    opts: Dict[str, Any] = {}
+    exclude: Sequence[str] | None = None,
+    rename: dict[str, str] | None = None,
+    order: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    opts: dict[str, Any] = {}
     if exclude:
-        opts["excludeByName"] = {name: True for name in exclude}
+        opts["excludeByName"] = dict.fromkeys(exclude, True)
     if rename:
         opts["renameByName"] = rename
     if order:
@@ -379,14 +387,14 @@ def table_join(
     w: int,
     h: int,
     exprs: Sequence[str],
-    identity_fields: Dict[str, str],
+    identity_fields: dict[str, str],
     noise_fields: Sequence[str],
-    value_renames: Sequence[Optional[str]],
+    value_renames: Sequence[str | None],
     join_mode: str = "outer",
     join_field: str = "UUID",
-    overrides: Optional[List[Dict[str, Any]]] = None,
+    overrides: list[dict[str, Any]] | None = None,
     description: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Multi-target table join, generalizing the join-by-UUID + organize recipe used
     by row_c.py (GPU Inventory), row_i.py (PCIe link table) and row_l.py (Fabric/MIG/
     power-profile/NVLink tables): N instant format=table targets, each sharing the
@@ -430,11 +438,11 @@ def table_join(
     transform no-ops on a map key that is not present in a given render, so adding
     these extra keys is safe for every frame-count in between too."""
     ref_ids = _excel_ref_ids(len(exprs))
-    targets = [target(expr, ref_id=rid, instant=True, fmt="table") for rid, expr in zip(ref_ids, exprs)]
+    targets = [target(expr, ref_id=rid, instant=True, fmt="table") for rid, expr in zip(ref_ids, exprs, strict=True)]
     n = len(exprs)
 
-    exclude: List[str] = []
-    rename: Dict[str, str] = {}
+    exclude: list[str] = []
+    rename: dict[str, str] = {}
     for field in noise_fields:
         exclude.append(field)
         exclude += [f"{field} {i}" for i in range(1, n + 1)]
@@ -442,7 +450,7 @@ def table_join(
         rename[field] = friendly
         rename[f"{field} 1"] = friendly
         exclude += [f"{field} {i}" for i in range(2, n + 1)]
-    for rid, friendly in zip(ref_ids, value_renames):
+    for rid, friendly in zip(ref_ids, value_renames, strict=True):
         if friendly is None:
             exclude.append(f"Value #{rid}")
         else:
@@ -453,8 +461,16 @@ def table_join(
         transform_organize(exclude=exclude, rename=rename),
     ]
     return table(
-        panel_id, title, x, y, w, h, targets,
-        transformations=transformations, overrides=overrides or [], description=description,
+        panel_id,
+        title,
+        x,
+        y,
+        w,
+        h,
+        targets,
+        transformations=transformations,
+        overrides=overrides or [],
+        description=description,
     )
 
 
@@ -463,7 +479,7 @@ def table_join(
 # ---------------------------------------------------------------------------
 
 
-def _grid(x: int, y: int, w: int, h: int) -> Dict[str, int]:
+def _grid(x: int, y: int, w: int, h: int) -> dict[str, int]:
     if w > 24:
         raise ValueError(f"panel width {w} > 24")
     if x + w > 24:
@@ -479,22 +495,22 @@ def _base_panel(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]] = (),
+    targets: Sequence[dict[str, Any]] = (),
     description: str = "",
     unit_id: str = "none",
-    thresholds_steps: Optional[Dict[str, Any]] = None,
-    mappings: Optional[List[Dict[str, Any]]] = None,
-    overrides: Optional[List[Dict[str, Any]]] = None,
-    min_: Optional[float] = None,
-    max_: Optional[float] = None,
-    custom: Optional[Dict[str, Any]] = None,
-    color: Optional[Dict[str, Any]] = None,
-    options: Optional[Dict[str, Any]] = None,
-    links: Optional[List[Dict[str, Any]]] = None,
-    display_name: Optional[str] = None,
-    no_value: Optional[str] = None,
-) -> Dict[str, Any]:
-    defaults: Dict[str, Any] = {
+    thresholds_steps: dict[str, Any] | None = None,
+    mappings: list[dict[str, Any]] | None = None,
+    overrides: list[dict[str, Any]] | None = None,
+    min_: float | None = None,
+    max_: float | None = None,
+    custom: dict[str, Any] | None = None,
+    color: dict[str, Any] | None = None,
+    options: dict[str, Any] | None = None,
+    links: list[dict[str, Any]] | None = None,
+    display_name: str | None = None,
+    no_value: str | None = None,
+) -> dict[str, Any]:
+    defaults: dict[str, Any] = {
         "unit": unit(unit_id) if unit_id in UNITS else unit_id,
         "thresholds": thresholds_steps if thresholds_steps is not None else no_thresholds(),
     }
@@ -513,7 +529,7 @@ def _base_panel(
     if no_value:
         defaults["noValue"] = no_value
 
-    panel: Dict[str, Any] = {
+    panel: dict[str, Any] = {
         "id": panel_id,
         "title": title,
         "type": ptype,
@@ -538,20 +554,20 @@ def stat(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]],
+    targets: Sequence[dict[str, Any]],
     unit_id: str = "none",
-    thresholds_steps: Optional[Dict[str, Any]] = None,
-    mappings: Optional[List[Dict[str, Any]]] = None,
+    thresholds_steps: dict[str, Any] | None = None,
+    mappings: list[dict[str, Any]] | None = None,
     graph_mode: str = "none",
     color_mode: str = "value",
     reduce_calc: str = "lastNotNull",
     description: str = "",
-    overrides: Optional[List[Dict[str, Any]]] = None,
-    no_value: Optional[str] = None,
-    display_name: Optional[str] = None,
-    links: Optional[List[Dict[str, Any]]] = None,
+    overrides: list[dict[str, Any]] | None = None,
+    no_value: str | None = None,
+    display_name: str | None = None,
+    links: list[dict[str, Any]] | None = None,
     text_mode: str = "auto",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     options = {
         "reduceOptions": {"calcs": [reduce_calc], "fields": "", "values": False},
         "orientation": "auto",
@@ -561,10 +577,23 @@ def stat(
         "justifyMode": "auto",
     }
     return _base_panel(
-        panel_id, title, "stat", x, y, w, h, targets,
-        description=description, unit_id=unit_id, thresholds_steps=thresholds_steps,
-        mappings=mappings, overrides=overrides, options=options, no_value=no_value,
-        display_name=display_name, links=links,
+        panel_id,
+        title,
+        "stat",
+        x,
+        y,
+        w,
+        h,
+        targets,
+        description=description,
+        unit_id=unit_id,
+        thresholds_steps=thresholds_steps,
+        mappings=mappings,
+        overrides=overrides,
+        options=options,
+        no_value=no_value,
+        display_name=display_name,
+        links=links,
     )
 
 
@@ -575,15 +604,15 @@ def gauge(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]],
+    targets: Sequence[dict[str, Any]],
     unit_id: str = "percent",
     min_: float = 0,
     max_: float = 100,
-    thresholds_steps: Optional[Dict[str, Any]] = None,
-    mappings: Optional[List[Dict[str, Any]]] = None,
+    thresholds_steps: dict[str, Any] | None = None,
+    mappings: list[dict[str, Any]] | None = None,
     description: str = "",
-    overrides: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    overrides: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     options = {
         "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
         "orientation": "auto",
@@ -591,9 +620,22 @@ def gauge(
         "showThresholdMarkers": True,
     }
     return _base_panel(
-        panel_id, title, "gauge", x, y, w, h, targets,
-        description=description, unit_id=unit_id, thresholds_steps=thresholds_steps,
-        mappings=mappings, overrides=overrides, min_=min_, max_=max_, options=options,
+        panel_id,
+        title,
+        "gauge",
+        x,
+        y,
+        w,
+        h,
+        targets,
+        description=description,
+        unit_id=unit_id,
+        thresholds_steps=thresholds_steps,
+        mappings=mappings,
+        overrides=overrides,
+        min_=min_,
+        max_=max_,
+        options=options,
     )
 
 
@@ -604,18 +646,18 @@ def bargauge(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]],
+    targets: Sequence[dict[str, Any]],
     unit_id: str = "none",
-    min_: Optional[float] = None,
-    max_: Optional[float] = None,
-    thresholds_steps: Optional[Dict[str, Any]] = None,
-    mappings: Optional[List[Dict[str, Any]]] = None,
+    min_: float | None = None,
+    max_: float | None = None,
+    thresholds_steps: dict[str, Any] | None = None,
+    mappings: list[dict[str, Any]] | None = None,
     description: str = "",
     display_mode: str = "gradient",
     orientation: str = "horizontal",
-    overrides: Optional[List[Dict[str, Any]]] = None,
-    color: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    overrides: list[dict[str, Any]] | None = None,
+    color: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     options = {
         "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
         "orientation": orientation,
@@ -623,9 +665,22 @@ def bargauge(
         "showUnfilled": True,
     }
     return _base_panel(
-        panel_id, title, "bargauge", x, y, w, h, targets,
-        description=description, unit_id=unit_id, thresholds_steps=thresholds_steps,
-        mappings=mappings, overrides=overrides, min_=min_, max_=max_, options=options,
+        panel_id,
+        title,
+        "bargauge",
+        x,
+        y,
+        w,
+        h,
+        targets,
+        description=description,
+        unit_id=unit_id,
+        thresholds_steps=thresholds_steps,
+        mappings=mappings,
+        overrides=overrides,
+        min_=min_,
+        max_=max_,
+        options=options,
         color=color,
     )
 
@@ -637,21 +692,21 @@ def timeseries(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]],
+    targets: Sequence[dict[str, Any]],
     unit_id: str = "none",
-    min_: Optional[float] = None,
-    max_: Optional[float] = None,
-    thresholds_steps: Optional[Dict[str, Any]] = None,
+    min_: float | None = None,
+    max_: float | None = None,
+    thresholds_steps: dict[str, Any] | None = None,
     stacked: bool = False,
     description: str = "",
-    overrides: Optional[List[Dict[str, Any]]] = None,
+    overrides: list[dict[str, Any]] | None = None,
     legend_mode: str = "list",
     legend_placement: str = "bottom",
-    legend_calcs: Optional[List[str]] = None,
-    legend_sort_by: Optional[str] = None,
+    legend_calcs: list[str] | None = None,
+    legend_sort_by: str | None = None,
     legend_sort_desc: bool = False,
-) -> Dict[str, Any]:
-    custom: Dict[str, Any] = {
+) -> dict[str, Any]:
+    custom: dict[str, Any] = {
         "drawStyle": "line",
         "lineWidth": 1,
         "fillOpacity": 15 if stacked else 5,
@@ -663,7 +718,7 @@ def timeseries(
         "axisCenteredZero": False,
         "showPoints": "never",
     }
-    legend: Dict[str, Any] = {
+    legend: dict[str, Any] = {
         "displayMode": legend_mode,
         "placement": legend_placement,
         "calcs": legend_calcs or [],
@@ -683,9 +738,22 @@ def timeseries(
         "tooltip": {"mode": "multi", "sort": "none"},
     }
     return _base_panel(
-        panel_id, title, "timeseries", x, y, w, h, targets,
-        description=description, unit_id=unit_id, thresholds_steps=thresholds_steps,
-        overrides=overrides, min_=min_, max_=max_, custom=custom, options=options,
+        panel_id,
+        title,
+        "timeseries",
+        x,
+        y,
+        w,
+        h,
+        targets,
+        description=description,
+        unit_id=unit_id,
+        thresholds_steps=thresholds_steps,
+        overrides=overrides,
+        min_=min_,
+        max_=max_,
+        custom=custom,
+        options=options,
     )
 
 
@@ -696,12 +764,12 @@ def state_timeline(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]],
-    mappings: Optional[List[Dict[str, Any]]] = None,
+    targets: Sequence[dict[str, Any]],
+    mappings: list[dict[str, Any]] | None = None,
     description: str = "",
-    overrides: Optional[List[Dict[str, Any]]] = None,
+    overrides: list[dict[str, Any]] | None = None,
     merge_values: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     options = {
         "mergeValues": merge_values,
         "showValue": "auto",
@@ -709,9 +777,20 @@ def state_timeline(
         "legend": {"displayMode": "list", "placement": "bottom"},
     }
     return _base_panel(
-        panel_id, title, "state-timeline", x, y, w, h, targets,
-        description=description, unit_id="none", mappings=mappings,
-        overrides=overrides, options=options, thresholds_steps=no_thresholds(),
+        panel_id,
+        title,
+        "state-timeline",
+        x,
+        y,
+        w,
+        h,
+        targets,
+        description=description,
+        unit_id="none",
+        mappings=mappings,
+        overrides=overrides,
+        options=options,
+        thresholds_steps=no_thresholds(),
     )
 
 
@@ -722,22 +801,34 @@ def table(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]],
-    transformations: Optional[List[Dict[str, Any]]] = None,
+    targets: Sequence[dict[str, Any]],
+    transformations: list[dict[str, Any]] | None = None,
     description: str = "",
-    overrides: Optional[List[Dict[str, Any]]] = None,
-    mappings: Optional[List[Dict[str, Any]]] = None,
+    overrides: list[dict[str, Any]] | None = None,
+    mappings: list[dict[str, Any]] | None = None,
     unit_id: str = "none",
-    no_value: Optional[str] = None,
-    links: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    no_value: str | None = None,
+    links: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     options = {"showHeader": True, "cellHeight": "sm"}
     panel = _base_panel(
-        panel_id, title, "table", x, y, w, h, targets,
-        description=description, unit_id=unit_id, mappings=mappings,
-        overrides=overrides, options=options, thresholds_steps=no_thresholds(),
+        panel_id,
+        title,
+        "table",
+        x,
+        y,
+        w,
+        h,
+        targets,
+        description=description,
+        unit_id=unit_id,
+        mappings=mappings,
+        overrides=overrides,
+        options=options,
+        thresholds_steps=no_thresholds(),
         custom={"align": "auto", "cellOptions": {"type": "auto"}},
-        no_value=no_value, links=links,
+        no_value=no_value,
+        links=links,
     )
     if transformations:
         panel["transformations"] = transformations
@@ -751,13 +842,13 @@ def heatmap(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]],
+    targets: Sequence[dict[str, Any]],
     bucket_size: float,
     unit_id: str = "none",
     description: str = "",
-    min_: Optional[float] = None,
-    max_: Optional[float] = None,
-) -> Dict[str, Any]:
+    min_: float | None = None,
+    max_: float | None = None,
+) -> dict[str, Any]:
     """calculate:true heatmap over a raw scalar gauge -- see row_d.py panels 29/30 for
     an example. min_/max_ pin the underlying value field's range so a zero-variance (idle GPU)
     sample set buckets into a thin band at its true value instead of Grafana's
@@ -774,12 +865,12 @@ def heatmap(
         "tooltip": {"show": True, "yHistogram": True},
         "legend": {"show": True},
     }
-    defaults: Dict[str, Any] = {}
+    defaults: dict[str, Any] = {}
     if min_ is not None:
         defaults["min"] = min_
     if max_ is not None:
         defaults["max"] = max_
-    panel: Dict[str, Any] = {
+    panel: dict[str, Any] = {
         "id": panel_id,
         "title": title,
         "type": "heatmap",
@@ -801,20 +892,31 @@ def histogram(
     y: int,
     w: int,
     h: int,
-    targets: Sequence[Dict[str, Any]],
+    targets: Sequence[dict[str, Any]],
     unit_id: str = "none",
     description: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Native 'histogram' panel type -- auto-bucketing, not the heatmap panel."""
     options = {"bucketOffset": 0, "legend": {"showLegend": True}}
     return _base_panel(
-        panel_id, title, "histogram", x, y, w, h, targets,
-        description=description, unit_id=unit_id, options=options,
+        panel_id,
+        title,
+        "histogram",
+        x,
+        y,
+        w,
+        h,
+        targets,
+        description=description,
+        unit_id=unit_id,
+        options=options,
         thresholds_steps=no_thresholds(),
     )
 
 
-def text(panel_id: int, title: str, x: int, y: int, w: int, h: int, content: str, mode: str = "markdown") -> Dict[str, Any]:
+def text(
+    panel_id: int, title: str, x: int, y: int, w: int, h: int, content: str, mode: str = "markdown"
+) -> dict[str, Any]:
     return {
         "id": panel_id,
         "title": title,
@@ -835,7 +937,7 @@ def query_variable(
     all_value: str = ".*",
     refresh: int = 2,
     sort: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """A Prometheus label_values(...) template variable. multi+includeAll+a real
     allValue (never the literal string 'All' reaching a =~ matcher) are always set
     together: an includeAll variable whose allValue is left at Grafana's default
@@ -861,7 +963,7 @@ def query_variable(
     }
 
 
-def textbox_variable(name: str, label: str, default: str) -> Dict[str, Any]:
+def textbox_variable(name: str, label: str, default: str) -> dict[str, Any]:
     return {
         "current": {"value": default, "text": default},
         "hide": 0,
@@ -874,7 +976,7 @@ def textbox_variable(name: str, label: str, default: str) -> Dict[str, Any]:
     }
 
 
-def annotation_query(name: str, expr: str, icon_color: str, title_format: str) -> Dict[str, Any]:
+def annotation_query(name: str, expr: str, icon_color: str, title_format: str) -> dict[str, Any]:
     """A Prometheus-backed annotation query (dashboard-level, not a panel) -- draws a
     vertical marker on every timeseries panel wherever `expr` returns a sample.
     Completeness gap: the dashboard previously had zero automatic annotations (only
@@ -890,7 +992,7 @@ def annotation_query(name: str, expr: str, icon_color: str, title_format: str) -
     }
 
 
-def dashboard_link(title: str, url: str) -> Dict[str, Any]:
+def dashboard_link(title: str, url: str) -> dict[str, Any]:
     return {
         "asDropdown": False,
         "icon": "external link",
@@ -909,11 +1011,11 @@ def row(
     panel_id: int,
     title: str,
     collapsed: bool = False,
-    repeat: Optional[str] = None,
-) -> Dict[str, Any]:
+    repeat: str | None = None,
+) -> dict[str, Any]:
     """A row panel skeleton. gridPos/panels are filled in by the layout engine
     (see build_layout below) -- row modules never set gridPos.y themselves."""
-    r: Dict[str, Any] = {
+    r: dict[str, Any] = {
         "id": panel_id,
         "title": title,
         "type": "row",
@@ -930,14 +1032,26 @@ def row(
 # ---------------------------------------------------------------------------
 
 _PSTATE_COLORS_16 = [
-    "dark-green", "green", "semi-dark-green", "light-green",
-    "dark-blue", "blue", "semi-dark-blue", "light-blue",
-    "dark-purple", "purple", "semi-dark-purple", "light-purple",
-    "dark-orange", "orange", "semi-dark-orange", "light-orange",
+    "dark-green",
+    "green",
+    "semi-dark-green",
+    "light-green",
+    "dark-blue",
+    "blue",
+    "semi-dark-blue",
+    "light-blue",
+    "dark-purple",
+    "purple",
+    "semi-dark-purple",
+    "light-purple",
+    "dark-orange",
+    "orange",
+    "semi-dark-orange",
+    "light-orange",
 ]
 
 
-def pstate_mappings(colored: bool = False) -> List[Dict[str, Any]]:
+def pstate_mappings(colored: bool = False) -> list[dict[str, Any]]:
     """DCGM_FI_DEV_PSTATE, 0-15, format 'P${value}'. colored=False for the compact
     per-GPU stat (id 19: no color, since P0 isn't inherently good/bad); colored=True
     for the P-State history state-timeline (id 41, needs a distinct hue per state)."""
@@ -948,33 +1062,39 @@ def pstate_mappings(colored: bool = False) -> List[Dict[str, Any]]:
     return value_mapping(entries)
 
 
-def compute_mode_mappings() -> List[Dict[str, Any]]:
-    return value_mapping([
-        (0, "Default", "green"),
-        (1, "Exclusive Thread (deprecated)", "yellow"),
-        (2, "Prohibited", "red"),
-        (3, "Exclusive Process", "blue"),
-    ])
+def compute_mode_mappings() -> list[dict[str, Any]]:
+    return value_mapping(
+        [
+            (0, "Default", "green"),
+            (1, "Exclusive Thread (deprecated)", "yellow"),
+            (2, "Prohibited", "red"),
+            (3, "Exclusive Process", "blue"),
+        ]
+    )
 
 
-def ecc_mode_mappings() -> List[Dict[str, Any]]:
-    return value_mapping([
-        (0, "Disabled", "gray"),
-        (1, "Enabled", "green"),
-    ])
+def ecc_mode_mappings() -> list[dict[str, Any]]:
+    return value_mapping(
+        [
+            (0, "Disabled", "gray"),
+            (1, "Enabled", "green"),
+        ]
+    )
 
 
-def virtual_mode_mappings() -> List[Dict[str, Any]]:
-    return value_mapping([
-        (0, "None (bare-metal)", None),
-        (1, "Passthrough", None),
-        (2, "vGPU", None),
-        (3, "Host vGPU", None),
-        (4, "Host vSGA", None),
-    ])
+def virtual_mode_mappings() -> list[dict[str, Any]]:
+    return value_mapping(
+        [
+            (0, "None (bare-metal)", None),
+            (1, "Passthrough", None),
+            (2, "vGPU", None),
+            (3, "Host vGPU", None),
+            (4, "Host vSGA", None),
+        ]
+    )
 
 
-def recovery_action_mappings() -> List[Dict[str, Any]]:
+def recovery_action_mappings() -> list[dict[str, Any]]:
     """DCGM_FI_DEV_GPU_RECOVERY_ACTION -> nvmlDeviceGpuRecoveryAction_t. VERIFIED against
     the installed /usr/local/cuda-13.4/targets/x86_64-linux/include/nvml.h (line 2430),
     which defines all 8 values -- the original 5-entry mapping had 3/4 backwards
@@ -982,54 +1102,62 @@ def recovery_action_mappings() -> List[Dict[str, Any]]:
     (no reset)/4=Drain P2P AND Reset) and was missing 5/6/7 entirely (would have
     rendered as a bare unmapped number with no text/color on any GPU new enough to
     report them)."""
-    return value_mapping([
-        (0, "None", "green"),
-        (1, "GPU Reset", "yellow"),
-        (2, "Node Reboot", "red"),
-        (3, "Drain P2P", "orange"),
-        (4, "Drain P2P + Reset", "orange"),
-        (5, "Recover IMEX Domain", "orange"),
-        (6, "Bus Reset", "red"),
-        (7, "System Reboot", "red"),
-    ])
+    return value_mapping(
+        [
+            (0, "None", "green"),
+            (1, "GPU Reset", "yellow"),
+            (2, "Node Reboot", "red"),
+            (3, "Drain P2P", "orange"),
+            (4, "Drain P2P + Reset", "orange"),
+            (5, "Recover IMEX Domain", "orange"),
+            (6, "Bus Reset", "red"),
+            (7, "System Reboot", "red"),
+        ]
+    )
 
 
-def bool_reliability_mappings() -> List[Dict[str, Any]]:
+def bool_reliability_mappings() -> list[dict[str, Any]]:
     """ROW_REMAP_FAILURE, ROW_REMAP_PENDING, SRAM_EXCEEDED, MEMORY_UNREPAIRABLE,
     RETIRED_PENDING: 0->No (green), 1->Yes (red)."""
-    return value_mapping([
-        (0, "No", "green"),
-        (1, "Yes", "red"),
-    ])
+    return value_mapping(
+        [
+            (0, "No", "green"),
+            (1, "Yes", "red"),
+        ]
+    )
 
 
-def bool_config_mappings(off_text: str = "Off", on_text: str = "On") -> List[Dict[str, Any]]:
+def bool_config_mappings(off_text: str = "Off", on_text: str = "On") -> list[dict[str, Any]]:
     """FABRIC_MANAGER_STATUS, C2C_LINK_STATUS, VGPU_LICENSE_STATUS, MIG_MODE,
     CLOCKS_AUTOBOOST_MODE, PERSISTENCE_MODE, CC_MODE: 0->Off/No (gray), 1->On/Yes (green)."""
-    return value_mapping([
-        (0, off_text, "gray"),
-        (1, on_text, "green"),
-    ])
+    return value_mapping(
+        [
+            (0, off_text, "gray"),
+            (1, on_text, "green"),
+        ]
+    )
 
 
-def health_status_mappings() -> List[Dict[str, Any]]:
+def health_status_mappings() -> list[dict[str, Any]]:
     """DCGM_EXP_GPU_HEALTH_STATUS: 0 Pass, 10 Warn, 20 Fail, else Unknown.
     Grafana evaluates mappings in array order and stops at the first match, so the
     exact-value mappings must precede the catch-all range. NOTE: Grafana value
     mappings cannot interpolate the matched value into text (no ${value} token) --
     the spec's "Unknown (${value})" is approximated here as literal "Unknown"; the
     raw numeric value is still visible in the tooltip/legend for anyone who needs it."""
-    exact = value_mapping([
-        (0, "Pass", "green"),
-        (10, "Warn", "yellow"),
-        (20, "Fail", "red"),
-    ])
+    exact = value_mapping(
+        [
+            (0, "Pass", "green"),
+            (10, "Warn", "yellow"),
+            (20, "Fail", "red"),
+        ]
+    )
     fallback = range_mapping(None, None, "Unknown", "orange", index=3)
-    return exact + [fallback]
+    return [*exact, fallback]
 
 
 # NVIDIA Xid-errors reference table (release 615 documentation).
-XID_TABLE: List[Tuple[int, str, str]] = [
+XID_TABLE: list[tuple[int, str, str]] = [
     (43, "Reset channel (app killed, GPU recovers)", "green"),
     (63, "Row/page retirement event (self-healed)", "green"),
     (94, "Contained ECC error", "green"),
@@ -1062,16 +1190,18 @@ XID_TABLE: List[Tuple[int, str, str]] = [
 # the drill-down table's own severity classification. Used to keep a top-strip/alarm
 # tile from painting solid red for e.g. Xid 43 (an app crash the GPU already recovered
 # from) exactly the same as a genuine Xid 79 (fallen off the bus).
-BENIGN_XID_CODES: List[int] = sorted(xid for xid, _, color in XID_TABLE if color == "green")
+BENIGN_XID_CODES: list[int] = sorted(xid for xid, _, color in XID_TABLE if color == "green")
 
 
-def xid_mappings() -> List[Dict[str, Any]]:
+def xid_mappings() -> list[dict[str, Any]]:
     """See health_status_mappings() docstring re: no ${value} interpolation in
     Grafana value mappings -- 'Unknown Xid' is used instead of 'Unknown Xid ${value}'."""
     exact = value_mapping([(xid, name, color) for xid, name, color in XID_TABLE])
     nvlink_family = range_mapping(144, 150, "NVLink sub-link-layer error", "red", index=len(XID_TABLE))
-    fallback = range_mapping(None, None, "Unknown Xid — see docs.nvidia.com/deploy/xid-errors/", "orange", index=len(XID_TABLE) + 1)
-    return exact + [nvlink_family, fallback]
+    fallback = range_mapping(
+        None, None, "Unknown Xid — see docs.nvidia.com/deploy/xid-errors/", "orange", index=len(XID_TABLE) + 1
+    )
+    return [*exact, nvlink_family, fallback]
 
 
 # Clock-event-reason bitmask (DCGM_FI_DEV_CLOCKS_EVENT_REASONS), all 11 bits.
@@ -1081,7 +1211,7 @@ def xid_mappings() -> List[Dict[str, Any]]:
 # informational clock limits, NOT throttling (nvidia-smi -q -d PERFORMANCE shows
 # "Reliability: Active" while idling in P8) -- excluded from any throttle
 # tile/alarm, colored blue/yellow (not red) in the bitmask timeline.
-CLOCK_EVENT_BITS: Dict[str, Tuple[int, str]] = {
+CLOCK_EVENT_BITS: dict[str, tuple[int, str]] = {
     "GPU_IDLE": (0x001, "benign"),
     "APP_CLOCKS": (0x002, "benign"),
     "SW_POWER_CAP": (0x004, "throttle"),
@@ -1098,7 +1228,7 @@ CLOCK_EVENT_BITS: Dict[str, Tuple[int, str]] = {
 # Only these 5 bits count as "real throttle now". BOARD_LIMIT/RELIABILITY are
 # informational clock limits, not throttling, and are deliberately excluded --
 # summing all 7 non-benign bits would wrongly count them as throttling too.
-REAL_THROTTLE_BITS: List[int] = sorted(
+REAL_THROTTLE_BITS: list[int] = sorted(
     bit for bit, nature in CLOCK_EVENT_BITS.values() if nature == "throttle"
 )  # [4, 8, 32, 64, 128]
 
@@ -1109,7 +1239,7 @@ REAL_THROTTLE_BITS: List[int] = sorted(
 # instead of REAL_THROTTLE_BITS; anything that just wants "is this GPU throttled
 # at all, for any reason" (including the benign power-cap case) keeps using
 # REAL_THROTTLE_BITS/any_real_throttle_expr.
-REAL_FAULT_THROTTLE_BITS: List[int] = [b for b in REAL_THROTTLE_BITS if b != 0x004]  # [8, 32, 64, 128]
+REAL_FAULT_THROTTLE_BITS: list[int] = [b for b in REAL_THROTTLE_BITS if b != 0x004]  # [8, 32, 64, 128]
 
 CLOCK_EVENT_COLOR = {"benign": "gray", "throttle": "red", "clock_limit_info": "blue"}
 
@@ -1120,7 +1250,7 @@ def clock_event_bit_expr(field_expr: str, bit: int) -> str:
     return f"floor({field_expr}/{bit}) % 2"
 
 
-def any_bits_set_expr(field_expr: str, bits: List[int]) -> str:
+def any_bits_set_expr(field_expr: str, bits: list[int]) -> str:
     """'Is any of these decode bits set' -- the general form of any_real_throttle_expr
     for an arbitrary bit subset (e.g. REAL_FAULT_THROTTLE_BITS)."""
     terms = " + ".join(clock_event_bit_expr(field_expr, bit) for bit in bits)
@@ -1142,14 +1272,14 @@ def any_real_fault_throttle_expr(field_expr: str) -> str:
     return any_bits_set_expr(field_expr, REAL_FAULT_THROTTLE_BITS)
 
 
-def cuda_compute_capability_major_minor(field_expr: str) -> Tuple[str, str]:
+def cuda_compute_capability_major_minor(field_expr: str) -> tuple[str, str]:
     """(major << 16 | minor), NOT <<32. Verified live: 786432 -> major=12, minor=0."""
     major = f"floor({field_expr}/65536)"
     minor = f"({field_expr} - floor({field_expr}/65536)*65536)"
     return major, minor
 
 
-def cuda_driver_version_major_minor(field_expr: str) -> Tuple[str, str]:
+def cuda_driver_version_major_minor(field_expr: str) -> tuple[str, str]:
     """major*1000 + minor*10. Verified live: 13040 -> 13.4."""
     major = f"floor({field_expr}/1000)"
     minor = f"floor(({field_expr} - floor({field_expr}/1000)*1000)/10)"
@@ -1174,7 +1304,7 @@ class RowContext:
     legend_std: str = LEGEND_STD
 
 
-def rects_overlap(a: Dict[str, int], b: Dict[str, int]) -> bool:
+def rects_overlap(a: dict[str, int], b: dict[str, int]) -> bool:
     """Public so tools/lint_dashboard.py can import this exact algorithm instead of
     keeping its own duplicate copy, which would risk the two silently drifting
     apart."""
@@ -1186,7 +1316,7 @@ def rects_overlap(a: Dict[str, int], b: Dict[str, int]) -> bool:
 _rects_overlap = rects_overlap  # internal alias, kept so call sites below read unchanged
 
 
-def _check_no_overlap(panels: List[Dict[str, Any]], context: str) -> None:
+def _check_no_overlap(panels: list[dict[str, Any]], context: str) -> None:
     for i in range(len(panels)):
         gi = panels[i]["gridPos"]
         if gi["w"] > 24 or gi["x"] + gi["w"] > 24:
@@ -1203,7 +1333,7 @@ def _check_no_overlap(panels: List[Dict[str, Any]], context: str) -> None:
                 )
 
 
-def build_layout(row_modules: Sequence[Any], ctx: Optional[RowContext] = None) -> List[Dict[str, Any]]:
+def build_layout(row_modules: Sequence[Any], ctx: RowContext | None = None) -> list[dict[str, Any]]:
     """Stacks row modules top-to-bottom and returns the flat list of top-level
     dashboard panels (row panels + their expanded children as siblings; collapsed
     rows carry their children inside row['panels']).
@@ -1220,8 +1350,8 @@ def build_layout(row_modules: Sequence[Any], ctx: Optional[RowContext] = None) -
     """
     ctx = ctx or RowContext()
     cursor = 0
-    top_level: List[Dict[str, Any]] = []
-    seen_ids: Dict[int, str] = {}
+    top_level: list[dict[str, Any]] = []
+    seen_ids: dict[int, str] = {}
 
     def _register_id(pid: int, label: str) -> None:
         if pid in seen_ids:
