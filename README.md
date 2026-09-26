@@ -1,5 +1,10 @@
 # NVIDIA GPU — DCGM Ultimate Dashboard
 
+[![Grafana Dashboard](https://img.shields.io/badge/Grafana-25820-orange?logo=grafana)](https://grafana.com/grafana/dashboards/25820/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
+Published on Grafana.com: **[NVIDIA GPU — DCGM Ultimate Dashboard — ID 25820](https://grafana.com/grafana/dashboards/25820/)**
+
 A classic Grafana dashboard (schemaVersion 39) for NVIDIA GPUs monitored via **DCGM Exporter**
 only — no `nvidia-smi`-based exporter, no Kubernetes dependency. 100 panels across 12 rows, built
 from a 168-field custom DCGM counter set: full parity with the popular `nvidia_gpu_exporter`
@@ -83,10 +88,21 @@ this one, rather than shipping ~180 always-empty fields to every single-GPU user
 
 ## Install
 
+### From Grafana.com (recommended)
+
+1. In Grafana: **Dashboards → New → Import**.
+2. Enter dashboard ID **`25820`** and click **Load**.
+3. At the datasource prompt, pick your Prometheus datasource for `DS_PROMETHEUS`.
+4. Import. No further wiring is needed — every panel already targets `${DS_PROMETHEUS}`.
+
+Or import by URL: `https://grafana.com/grafana/dashboards/25820/`
+
+### From this repository
+
 1. In Grafana: **Dashboards → New → Import**.
 2. Upload `nvidia-dcgm-dashboard.json` (or paste its contents).
 3. At the datasource prompt, pick your Prometheus datasource for `DS_PROMETHEUS`.
-4. Import. No further wiring is needed — every panel already targets `${DS_PROMETHEUS}`.
+4. Import.
 
 Requires Grafana 10.4+ (schemaVersion 39). Confirmed working on Grafana 13.2.2.
 
