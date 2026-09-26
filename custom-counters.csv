@@ -1,0 +1,285 @@
+# SPDX-License-Identifier: GPL-3.0-or-later AND Apache-2.0
+# Copyright (C) 2026 Giovanni Manzoni
+# Copyright (C) 2021 NVIDIA CORPORATION
+#
+# Some help-column descriptions are adapted from NVIDIA/dcgm-exporter's etc/default-counters.csv
+# (https://github.com/NVIDIA/dcgm-exporter, Apache License 2.0, see LICENSES/Apache-2.0.txt).
+# Modified by Giovanni Manzoni, 2026: fields expanded and most descriptions rewritten. See
+# THIRD_PARTY_NOTICES.md for details.
+#
+# DCGM field, Prometheus type, help
+# Names verified against DCGM 4.7 / go-dcgm v1.4701.1 (dcgm-exporter 4.8.4), on an NVIDIA RTX PRO
+# 4000 Blackwell, cross-checked against the authoritative
+# /usr/share/datacenter-gpu-manager-4/bindings/python3/dcgm_fields.py. This is the field list for
+# the "NVIDIA GPU — DCGM Ultimate Dashboard" (see README.md). Every field below is used by at
+# least one panel of that dashboard.
+#
+# Sections marked OPTIONAL are safe on any DCGM-monitored GPU and become meaningful on
+# NVLink/NVSwitch, C2C/superchip, MIG, vGPU, or Blackwell fleets with workload power profiles. Do
+# not remove them just because they read 0 on a single workstation GPU.
+#
+# Caveat: the "report 0/absent without the matching hardware" claim above is
+# accurate for gauge/counter OPTIONAL fields (confirmed live: DCGM_FI_DEV_FABRIC_MANAGER_STATUS=0,
+# DCGM_FI_DEV_MIG_MAX_SLICES=0 on this workstation GPU), but NOT for the 3 OPTIONAL fields of
+# Prometheus "label" type -- DCGM_FI_DEV_FABRIC_CLUSTER_UUID, DCGM_FI_IMEX_DOMAIN_STATUS,
+# DCGM_FI_CUDA_GPU_VISIBLE_DEVICES. dcgm-exporter attaches every "label"-type field as an extra
+# Prometheus label on every OTHER exported metric for that GPU (confirmed live: both fields carry
+# real, non-empty strings -- "00000000-0000-0000-0000-000000000000" / "NOT_INSTALLED" -- attached
+# to DCGM_FI_DEV_GPU_UTIL on this fabric-less, non-IMEX GPU), so they are never truly "absent": they
+# add a real label (and TSDB cardinality/bytes-on-the-wire cost) to every one of the ~165 other
+# metrics per GPU, forever, whether or not the underlying hardware exists. Of the 8 total label
+# fields, only 5 (GPU_BRAND, BOARD_SERIAL, DRIVER_VERSION, VBIOS_VERSION, NVML_VERSION) feed the
+# always-visible GPU Inventory table; these 3 are consumed only by the collapsed, off-by-default
+# "Datacenter / hardware-specific" row (fabric/IMEX/MIG panels) -- keep them only if you use that
+# row; on a fleet with zero NVSwitch/superchip/MIG hardware, dropping them from this CSV removes a
+# real (if small) per-series cost with no loss of information anywhere else in the dashboard.
+#
+# CORRECTIONS applied vs. the original draft of this file (see README.md for the full paper
+# trail):
+#  - DCGM_FI_DEV_POWER_VIOLATION / THERMAL_VIOLATION / SYNC_BOOST_VIOLATION / BOARD_LIMIT_VIOLATION /
+#    LOW_UTIL_VIOLATION / RELIABILITY_VIOLATION: unit is NANOSECONDS, not microseconds
+#    (dcgm_fields.h says so explicitly; confirmed empirically by matching POWER_VIOLATION bit-for-bit
+#    against the explicit "_NS" field DCGM_FI_DEV_CLOCKS_EVENT_REASON_SW_POWER_CAP_NS).
+#  - DCGM_FI_DEV_CLOCKS_EVENT_REASON_SYNC_BOOST_NS (field id 1421): the DCGM 4.7 headers/Python
+#    bindings installed on this host rename this field to "..._SYNC_BOOST_COUNT_NS", and an
+#    intermediate draft of this CSV followed that newer spelling — but dcgm-exporter 4.8.4 ships
+#    go-dcgm v1.4701.1, whose name->ID map still only recognizes the pre-rename name used below.
+#    Empirically confirmed with a live throwaway dcgm-exporter instance: the "_COUNT_" spelling
+#    fails with "could not find DCGM field ... unknown ExporterCounter field", while the name
+#    below loads and reports data. Keep this exact spelling unless/until a newer dcgm-exporter
+#    release picks up the renamed go-dcgm map.
+#  - No literal double-quote (") characters appear in any help-text field below, and no help text
+#    contains an unescaped comma — dcgm-exporter parses this file with Go's encoding/csv in its
+#    strict default mode (no LazyQuotes), which hard-fails on either (verified empirically: an
+#    earlier draft with quoted phrases like "no data" in the help text made the exporter refuse to
+#    start with "bare \" in non-quoted-field"). Use single quotes and semicolons instead.
+#  - The five DCGM_FI_DEV_CLOCKS_EVENT_REASON_*_NS fields are cumulative monotonic counters, not
+#    gauges (same family as the *_VIOLATION fields above) — typed "counter" here, was "gauge" in an
+#    earlier draft. rate()/increase() worked either way, but the type now matches reality.
+#  - DCGM_FI_DEV_CLOCKS_EVENT_REASONS bitmask help text now lists all 11 bits (0x001-0x400), incl.
+#    0x200 BOARD_LIMIT, which an earlier draft's comment omitted.
+#  - FB_TOTAL is internally flagged "counter" by DCGM's own metadata but is a static nameplate
+#    capacity that never increments — kept as "gauge" here, which is the correct Prometheus semantic.
+
+# --- Clocks (MHz) ---
+DCGM_FI_DEV_SM_CLOCK,                gauge,   SM clock (MHz).
+DCGM_FI_DEV_MEM_CLOCK,               gauge,   Memory clock (MHz).
+DCGM_FI_DEV_VIDEO_CLOCK,             gauge,   Video clock (MHz).
+DCGM_FI_DEV_MAX_SM_CLOCK,            gauge,   Max SM clock (MHz).
+DCGM_FI_DEV_MAX_MEM_CLOCK,           gauge,   Max memory clock (MHz).
+
+# --- Temperature (C) ---
+DCGM_FI_DEV_GPU_TEMP,                gauge,   GPU temperature (C).
+DCGM_FI_DEV_MEMORY_TEMP,             gauge,   Memory temperature (C). Blank on GPUs without an on-die memory temperature sensor (most workstation SKUs) -- 'no data' is the normal; healthy state here; not a fault.
+DCGM_FI_DEV_SLOWDOWN_TEMP,           gauge,   Slowdown threshold temperature (C).
+DCGM_FI_DEV_SHUTDOWN_TEMP,           gauge,   Shutdown threshold temperature (C).
+DCGM_FI_DEV_GPU_MAX_OP_TEMP_CELSIUS, gauge,   Maximum recommended operating temperature for the GPU die (C).
+DCGM_FI_DEV_MEMORY_MAX_OP_TEMP_CELSIUS, gauge, Maximum recommended operating temperature for memory (C). Blank wherever DCGM_FI_DEV_MEMORY_TEMP is also blank.
+DCGM_FI_DEV_GPU_TEMP_MARGIN_CELSIUS, gauge,   Thermal margin (C): headroom between current GPU temperature and the nearest slowdown threshold. Lower = closer to throttling.
+
+# --- Fan / P-state ---
+DCGM_FI_DEV_FAN_SPEED,               gauge,   Fan speed (%). Blank on passively-cooled / blower-less server GPUs -- treat 'no data' as normal.
+DCGM_FI_DEV_PSTATE,                  gauge,   Performance state; 0-15 (0 = maximum performance; 15 = minimum).
+
+# --- Power ---
+DCGM_FI_DEV_POWER_USAGE,             gauge,   Power draw; 1-second average (W).
+DCGM_FI_DEV_POWER_USAGE_INSTANT,     gauge,   Instantaneous power draw (W).
+DCGM_FI_DEV_POWER_MGMT_LIMIT,        gauge,   Current (active) power management limit (W).
+DCGM_FI_DEV_ENFORCED_POWER_LIMIT,    gauge,   Effective power limit enforced by the driver after all limiters (W).
+DCGM_FI_DEV_BOARD_POWER_LIMIT_MIN_WATTS, gauge, Minimum configurable power management limit (W).
+DCGM_FI_DEV_POWER_MGMT_LIMIT_MAX,    gauge,   Maximum configurable power management limit (W).
+DCGM_FI_DEV_BOARD_POWER_LIMIT_DEFAULT_WATTS, gauge, Factory-default power management limit (W).
+DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION, counter, Cumulative energy consumption since the driver was last loaded; in millijoules (mJ). Convert to kWh with /3.6e9 (NOT /3.6e12); convert a rate to watts with /1e3 (NOT /1e6).
+
+# --- Throttling: live bitmask + per-reason cumulative time ---
+DCGM_FI_DEV_CLOCKS_EVENT_REASONS,    gauge,   Current clock event (throttle) reasons; bitmask (nvmlClocksEventReasons_t). 11 bits: 0x001 GPU_IDLE; 0x002 APP_CLOCKS; 0x004 SW_POWER_CAP; 0x008 HW_SLOWDOWN; 0x010 SYNC_BOOST; 0x020 SW_THERMAL; 0x040 HW_THERMAL; 0x080 HW_POWER_BRAKE; 0x100 DISPLAY_CLOCKS; 0x200 BOARD_LIMIT; 0x400 RELIABILITY (undocumented in dcgm_fields.h but real -- confirmed via nvidia-smi -q -d PERFORMANCE). Decode with floor(x/BIT) mod 2 in PromQL (Prometheus has no bitwise-AND operator as of 3.14).
+DCGM_FI_DEV_POWER_VIOLATION,         counter, Cumulative time throttled by the software power cap; in NANOSECONDS (ns) -- NOT microseconds. Use increase(...)/1e9 for seconds throttled in a window.
+DCGM_FI_DEV_THERMAL_VIOLATION,       counter, Cumulative time throttled by the software thermal limit; in NANOSECONDS (ns) -- NOT microseconds.
+DCGM_FI_DEV_SYNC_BOOST_VIOLATION,    counter, Cumulative time throttled by multi-GPU sync-boost; in nanoseconds (ns).
+DCGM_FI_DEV_BOARD_LIMIT_VIOLATION,   counter, Cumulative time throttled by the board power/current limit policy; in nanoseconds (ns).
+DCGM_FI_DEV_LOW_UTIL_VIOLATION,      counter, Cumulative time spent in a low-utilization power-saving clock state; in nanoseconds (ns). Large/always-growing values are expected on an idle GPU -- this is not a fault; do not chart it alongside the real fault violations below.
+DCGM_FI_DEV_RELIABILITY_VIOLATION,   counter, Cumulative time throttled by the reliability/voltage-guardband policy; in nanoseconds (ns).
+DCGM_FI_DEV_CLOCKS_EVENT_REASON_SW_POWER_CAP_NS,            counter, Cumulative time throttled by the SW power cap; in nanoseconds (ns) -- per-reason twin of CLOCKS_EVENT_REASONS bit 0x004; use rate()/increase(); easier to chart than decoding the bitmask.
+DCGM_FI_DEV_CLOCKS_EVENT_REASON_SYNC_BOOST_NS,              counter, Cumulative time throttled by sync-boost; in nanoseconds (ns) -- per-reason twin of bit 0x010. NOTE: the DCGM 4.7 headers/Python bindings on this host rename field id 1421 to '..._SYNC_BOOST_COUNT_NS'; that spelling is REJECTED by dcgm-exporter 4.8.4 (its bundled go-dcgm 1.4701.1 map still only knows the pre-rename name used here) -- empirically confirmed by a live load test; keep this exact name without '_COUNT_'.
+DCGM_FI_DEV_CLOCKS_EVENT_REASON_SW_THERM_SLOWDOWN_NS,       counter, Cumulative time throttled by SW thermal slowdown; in nanoseconds (ns) -- per-reason twin of bit 0x020.
+DCGM_FI_DEV_CLOCKS_EVENT_REASON_HW_THERM_SLOWDOWN_NS,       counter, Cumulative time throttled by HW thermal slowdown (>=2x clock cut); in nanoseconds (ns) -- per-reason twin of bit 0x040.
+DCGM_FI_DEV_CLOCKS_EVENT_REASON_HW_POWER_BRAKE_SLOWDOWN_NS, counter, Cumulative time throttled by an external HW power-brake assertion; in nanoseconds (ns) -- per-reason twin of bit 0x080.
+DCGM_FI_DEV_CLOCKS_AUTOBOOST_MODE,   gauge,   Auto-boost enabled for this GPU (1 = enabled; 0 = disabled). Not populated on GPUs without auto-boost support.
+
+# --- Utilization (coarse, nvidia-smi style, already 0-100) ---
+DCGM_FI_DEV_GPU_UTIL,                gauge,   GPU utilization (%; 0-100). A 'some kernel is running' signal -- does not measure how much of the GPU is actually busy; see the PROF_* activity ratios below for that.
+DCGM_FI_DEV_MEM_COPY_UTIL,           gauge,   Memory controller utilization (%; 0-100).
+DCGM_FI_DEV_ENC_UTIL,                gauge,   Video encoder utilization (%; 0-100); aggregate across all NVENC instances.
+DCGM_FI_DEV_DEC_UTIL,                gauge,   Video decoder utilization (%; 0-100); aggregate across all NVDEC instances.
+
+# --- Memory (MiB, despite the DCGM field header saying "MB") ---
+DCGM_FI_DEV_FB_TOTAL,                gauge,   Framebuffer total (MiB).
+DCGM_FI_DEV_FB_USED,                 gauge,   Framebuffer used (MiB).
+DCGM_FI_DEV_FB_FREE,                 gauge,   Framebuffer free (MiB).
+DCGM_FI_DEV_FB_RESERVED,             gauge,   Framebuffer reserved (MiB); not available for allocation.
+DCGM_FI_DEV_FB_USED_RATIO,           gauge,   Framebuffer used ratio (0.0-1.0) = Used/(Total-Reserved). Avoids re-deriving the VRAM% formula by hand in PromQL.
+
+# --- BAR1 aperture (PCIe-mapped GPU memory window; relevant to GPUDirect / large peer mappings) ---
+DCGM_FI_DEV_BAR1_CAPACITY_BYTES,     gauge,   BAR1 aperture total capacity (bytes).
+DCGM_FI_DEV_BAR1_USED_BYTES,         gauge,   BAR1 aperture used (bytes).
+DCGM_FI_DEV_BAR1_FREE_BYTES,         gauge,   BAR1 aperture free (bytes).
+
+# --- PCIe ---
+DCGM_FI_DEV_PCIE_LINK_GEN,           gauge,   Current negotiated PCIe link generation.
+DCGM_FI_DEV_PCIE_LINK_WIDTH,         gauge,   Current negotiated PCIe link width (lanes).
+DCGM_FI_DEV_PCIE_MAX_LINK_GEN,       gauge,   Maximum PCIe link generation this slot/GPU supports.
+DCGM_FI_DEV_PCIE_MAX_LINK_WIDTH,     gauge,   Maximum PCIe link width (lanes) this slot/GPU supports.
+DCGM_FI_DEV_PCIE_REPLAY_COUNTER,     counter, Cumulative PCIe replay (retry) count since driver load. Always use increase()/rate() over a window -- the raw value only ever grows; so a static threshold on it will latch red forever after the first replay.
+DCGM_FI_DEV_PCIE_CORRECTABLE_ERROR_TOTAL, counter, Cumulative PCIe AER correctable-error count. Distinct from the replay counter (link-layer retries vs. AER-reported errors); always use increase()/rate().
+
+# --- Reliability: ECC, retired pages, row-remap, XID, recovery ---
+DCGM_FI_DEV_XID_ERRORS,              gauge,   Most recent XID error code. Event field: emits no sample at all until the first Xid fires since driver load -- 'no data' is the healthy steady state; not a bug.
+DCGM_FI_DEV_ECC_MODE,                gauge,   Current ECC mode (0 = disabled; 1 = enabled). Many workstation SKUs ship with ECC off by default -- that is not itself a fault.
+DCGM_FI_DEV_ECC_PENDING,             gauge,   Pending ECC mode (0/1) -- differs from ECC_MODE only right after a change; until the next reboot/GPU reset applies it.
+DCGM_FI_DEV_ECC_SBE_VOL_TOTAL,       counter, Single-bit (correctable) ECC errors since driver load ('volatile'; resets on reload).
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL,       counter, Double-bit (uncorrectable) ECC errors since driver load ('volatile'; resets on reload).
+DCGM_FI_DEV_ECC_SBE_AGG_TOTAL,       counter, Single-bit (correctable) ECC errors; persistent lifetime aggregate (survives driver reload/reboot).
+DCGM_FI_DEV_ECC_DBE_AGG_TOTAL,       counter, Double-bit (uncorrectable) ECC errors; persistent lifetime aggregate (survives driver reload/reboot).
+DCGM_FI_DEV_SRAM_EXCEEDED,           gauge,   SRAM ECC error-rate threshold exceeded (1 = true). Blackwell/Hopper+ reliability signal.
+DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS, counter, Memory rows remapped due to uncorrectable errors (Ampere+ replacement for page retirement). Any nonzero value is worth investigating.
+DCGM_FI_DEV_CORRECTABLE_REMAPPED_ROWS,   counter, Memory rows remapped due to correctable errors (Ampere+ replacement for page retirement). Occasional nonzero values are expected and self-healing.
+DCGM_FI_DEV_ROW_REMAP_FAILURE,       gauge,   Row remap failure (1 = a remap operation failed -- the GPU can no longer self-heal this ECC error; plan for RMA).
+DCGM_FI_DEV_ROW_REMAP_PENDING,       gauge,   Row remap pending (1 = a remap is queued and needs a GPU reset to apply).
+DCGM_FI_DEV_BANK_REMAP_AVAIL_MAX,    gauge,   Historical maximum available spare memory rows per bank (row-remap headroom).
+DCGM_FI_DEV_BANK_REMAP_AVAIL_HIGH,   gauge,   Count of memory banks with a high number of available spare rows still remaining.
+DCGM_FI_DEV_BANK_REMAP_AVAIL_PARTIAL, gauge,  Count of memory banks with only a partial number of available spare rows remaining.
+DCGM_FI_DEV_BANK_REMAP_AVAIL_LOW,    gauge,   Count of memory banks with a low number of available spare rows remaining -- early warning before AVAIL_NONE.
+DCGM_FI_DEV_BANK_REMAP_AVAIL_NONE,   gauge,   Count of memory banks with zero available spare rows left -- the next uncorrectable error in that bank cannot be remapped.
+DCGM_FI_DEV_RETIRED_SBE,             counter, Pages retired due to single-bit errors (pre-Ampere mechanism; superseded by row-remap). Expect 0/no-data on Ampere+ GPUs -- see the remap fields instead.
+DCGM_FI_DEV_RETIRED_DBE,             counter, Pages retired due to double-bit errors (pre-Ampere mechanism; superseded by row-remap). Expect 0/no-data on Ampere+ GPUs.
+DCGM_FI_DEV_RETIRED_PENDING,         gauge,   A page is pending retirement; awaiting GPU reset (pre-Ampere mechanism; superseded by row-remap pending).
+DCGM_FI_DEV_MEMORY_UNREPAIRABLE,     gauge,   Memory has an unrepairable error (1 = yes). New Blackwell+ reliability flag; expect 0/no-data on older GPUs.
+DCGM_FI_DEV_GPU_RECOVERY_ACTION,     gauge,   Recommended recovery action after a fault; per nvmlDeviceGpuRecoveryAction_t (0 = none; 1 = GPU reset; 2 = node reboot; 3 = drain+reset; 4 = drain P2P+reset).
+
+# --- Configuration / identity ---
+DCGM_FI_DEV_PERSISTENCE_MODE,        gauge,   Persistence mode (1 = on).
+DCGM_FI_DEV_COMPUTE_MODE,            gauge,   Compute mode (0 = Default; 1 = Exclusive Thread [deprecated]; 2 = Prohibited; 3 = Exclusive Process).
+DCGM_FI_DEV_CC_MODE,                 gauge,   Confidential Computing / protected-memory mode (0 = disabled; 1 = enabled).
+DCGM_FI_DEV_GPU_VIRTUAL_MODE,        gauge,   GPU virtualization mode (0 = none/bare-metal; 1 = passthrough; 2 = vGPU; 3 = host vGPU; 4 = host vSGA).
+DCGM_FI_CUDA_GPU_COMPUTE_CAPABILITY, gauge,   CUDA compute capability; packed as (major<<16 | minor). Decode as major = floor(x/65536); minor = x mod 65536 -- verified live: raw 786432 decodes to 12.0; matching nvidia-smi exactly. Do NOT use a <<32 (/4294967296) decode -- that always yields major=0.
+DCGM_FI_DEV_GPU_BRAND,               label,   GPU brand (e.g. Quadro/GeForce/Tesla/NVIDIA RTX).
+DCGM_FI_DEV_BOARD_SERIAL,            label,   Board serial number -- useful for fleet inventory and RMA tracking.
+DCGM_FI_DRIVER_VERSION,              label,   Driver version.
+DCGM_FI_DEV_VBIOS_VERSION,           label,   VBIOS version.
+DCGM_FI_SYSTEM_NVML_VERSION,         label,   Underlying NVML library version.
+
+# --- System / node ---
+DCGM_FI_SYSTEM_GPU_QUANTITY,         gauge,   Number of GPUs DCGM sees on this node (same value on every GPU series of that node) -- used by the top-strip 'GPUs known to DCGM' value; cross-checked against the live-reporting GPU count to catch a GPU that fell off the bus.
+DCGM_FI_CUDA_DRIVER_VERSION,         gauge,   CUDA driver version; encoded as major*1000+minor*10 (verified live: 13040 = CUDA 13.4; matches nvidia-smi).
+
+# --- Profiling (DCP): real unit activity (ratio, 0.0-1.0) ---
+DCGM_FI_PROF_GR_ENGINE_ACTIVE,       gauge,   Ratio (0.0-1.0) of time the graphics/compute engine had a bound context and was active. The closest DCGM analogue to GPU_UTIL; but measured; not inferred.
+DCGM_FI_PROF_SM_ACTIVE,              gauge,   Ratio (0.0-1.0) of time at least one warp was resident on an SM. >=0.8 is needed (not sufficient) for effective GPU use; <0.5 usually means the GPU is underused.
+DCGM_FI_PROF_SM_OCCUPANCY,           gauge,   Ratio (0.0-1.0) of resident warps vs. the theoretical maximum per SM; averaged over the whole GPU.
+DCGM_FI_PROF_PIPE_TENSOR_ACTIVE,     gauge,   Ratio (0.0-1.0) of cycles any tensor pipe (HMMA+IMMA+DFMA) issued an instruction. Achieved tensor TFLOPS is approximately this ratio times the GPU's peak tensor TFLOPS at that precision.
+DCGM_FI_PROF_DRAM_ACTIVE,            gauge,   Ratio (0.0-1.0) of cycles the memory interface was sending/receiving data. Achieved bandwidth is approximately this ratio times peak memory bandwidth. Practical achievable peak is roughly 0.8; not 1.0.
+DCGM_FI_PROF_PIPE_FP16_ACTIVE,       gauge,   Ratio (0.0-1.0) of cycles the non-tensor FP16 pipe was active (excludes HMMA/tensor FP16).
+DCGM_FI_PROF_PIPE_FP32_ACTIVE,       gauge,   Ratio (0.0-1.0) of cycles the FP32 pipe was active.
+DCGM_FI_PROF_PIPE_FP64_ACTIVE,       gauge,   Ratio (0.0-1.0) of cycles the FP64 pipe was active.
+DCGM_FI_PROF_IMMA_UTIL_RATIO,        gauge,   Ratio (0.0-1.0) of cycles the tensor IMMA (int8 tensor) pipe was active. Sub-component of PIPE_TENSOR_ACTIVE.
+DCGM_FI_PROF_HMMA_UTIL_RATIO,        gauge,   Ratio (0.0-1.0) of cycles the tensor HMMA (fp16/bf16/fp8 tensor) pipe was active. Sub-component of PIPE_TENSOR_ACTIVE.
+DCGM_FI_PROF_DFMA_UTIL_RATIO,        gauge,   Ratio (0.0-1.0) of cycles the tensor DFMA (fp64 tensor) pipe was active. Sub-component of PIPE_TENSOR_ACTIVE.
+DCGM_FI_PROF_INT_UTIL_RATIO,         gauge,   Ratio (0.0-1.0) of cycles the integer pipe was active.
+DCGM_FI_PROF_PCIE_TX_BYTES,          gauge,   PCIe TX bandwidth; instantaneous rate (bytes/s); including protocol overhead. Already a rate -- do not wrap in rate()/increase().
+DCGM_FI_PROF_PCIE_RX_BYTES,          gauge,   PCIe RX bandwidth; instantaneous rate (bytes/s); including protocol overhead. Already a rate -- do not wrap in rate()/increase().
+DCGM_FI_PROF_PCIE_TX_BYTES_TOTAL,    counter, Cumulative PCIe TX bytes since driver load. Use rate()/increase() -- an alternative to the gauge rate above for 'total data moved' panels.
+DCGM_FI_PROF_PCIE_RX_BYTES_TOTAL,    counter, Cumulative PCIe RX bytes since driver load. Use rate()/increase().
+
+# --- Profiling: per-instance video engines (NVDEC/NVJPG/NVOFA) -- ratio 0.0-1.0 ---
+# Only instances physically present on the GPU report a value; the rest stay absent (not an error).
+DCGM_FI_PROF_NVDEC_UTIL_0_RATIO,     gauge,   NVDEC hardware decoder instance 0 activity ratio (0.0-1.0).
+DCGM_FI_PROF_NVDEC_UTIL_1_RATIO,     gauge,   NVDEC hardware decoder instance 1 activity ratio (0.0-1.0). Absent on GPUs with fewer NVDEC engines.
+DCGM_FI_PROF_NVDEC_UTIL_2_RATIO,     gauge,   NVDEC hardware decoder instance 2 activity ratio (0.0-1.0). Absent on GPUs with fewer NVDEC engines.
+DCGM_FI_PROF_NVDEC_UTIL_3_RATIO,     gauge,   NVDEC hardware decoder instance 3 activity ratio (0.0-1.0). Absent on GPUs with fewer NVDEC engines.
+DCGM_FI_PROF_NVDEC_UTIL_4_RATIO,     gauge,   NVDEC hardware decoder instance 4 activity ratio (0.0-1.0). Absent on GPUs with fewer NVDEC engines.
+DCGM_FI_PROF_NVDEC_UTIL_5_RATIO,     gauge,   NVDEC hardware decoder instance 5 activity ratio (0.0-1.0). Absent on GPUs with fewer NVDEC engines.
+DCGM_FI_PROF_NVDEC_UTIL_6_RATIO,     gauge,   NVDEC hardware decoder instance 6 activity ratio (0.0-1.0). Absent on GPUs with fewer NVDEC engines.
+DCGM_FI_PROF_NVDEC_UTIL_7_RATIO,     gauge,   NVDEC hardware decoder instance 7 activity ratio (0.0-1.0). Absent on GPUs with fewer NVDEC engines.
+DCGM_FI_PROF_NVJPG_UTIL_0_RATIO,     gauge,   NVJPG hardware JPEG decoder instance 0 activity ratio (0.0-1.0).
+DCGM_FI_PROF_NVJPG_UTIL_1_RATIO,     gauge,   NVJPG hardware JPEG decoder instance 1 activity ratio (0.0-1.0). Absent on GPUs with fewer NVJPG engines.
+DCGM_FI_PROF_NVJPG_UTIL_2_RATIO,     gauge,   NVJPG hardware JPEG decoder instance 2 activity ratio (0.0-1.0). Absent on GPUs with fewer NVJPG engines.
+DCGM_FI_PROF_NVJPG_UTIL_3_RATIO,     gauge,   NVJPG hardware JPEG decoder instance 3 activity ratio (0.0-1.0). Absent on GPUs with fewer NVJPG engines.
+DCGM_FI_PROF_NVJPG_UTIL_4_RATIO,     gauge,   NVJPG hardware JPEG decoder instance 4 activity ratio (0.0-1.0). Absent on GPUs with fewer NVJPG engines.
+DCGM_FI_PROF_NVJPG_UTIL_5_RATIO,     gauge,   NVJPG hardware JPEG decoder instance 5 activity ratio (0.0-1.0). Absent on GPUs with fewer NVJPG engines.
+DCGM_FI_PROF_NVJPG_UTIL_6_RATIO,     gauge,   NVJPG hardware JPEG decoder instance 6 activity ratio (0.0-1.0). Absent on GPUs with fewer NVJPG engines.
+DCGM_FI_PROF_NVJPG_UTIL_7_RATIO,     gauge,   NVJPG hardware JPEG decoder instance 7 activity ratio (0.0-1.0). Absent on GPUs with fewer NVJPG engines.
+DCGM_FI_PROF_NVOFA_UTIL_0_RATIO,     gauge,   NVOFA (Optical Flow Accelerator) instance 0 activity ratio (0.0-1.0).
+DCGM_FI_PROF_NVOFA_UTIL_1_RATIO,     gauge,   NVOFA (Optical Flow Accelerator) instance 1 activity ratio (0.0-1.0). Absent on GPUs with only one NVOFA engine.
+
+# --- Metrics computed by the exporter itself (DCGM_EXP_*, not native DCGM fields) ---
+DCGM_EXP_GPU_HEALTH_STATUS,          gauge,   Per-subsystem GPU health check result (0 = pass; 10 = warn; 20 = fail -- dcgmHealthWatchResults_t). One series per 'health_watch' label (PCIE/NVLINK/PMU/MCU/MEM/SM/INFOROM/THERMAL/POWER/DRIVER/ALL). Dense: always emits; including a 0/pass value; for every watch on every GPU -- confirmed via exporter source (initGPUHealthEntityIncidentDefaults). The 'ALL' label is DCGM's own separate GPU-wide watch; NOT a rollup/derived value of the other 10 -- it independently reports devastating faults with no single named subsystem (e.g. Xid 79 fallen off bus; Xid 95 uncontained ECC; confirmed via exporter source: gpuHealthChecks lists DCGM_HEALTH_WATCH_ALL as its own entry). Include it in any 'is this GPU healthy' aggregation alongside the other 10 -- max()/max by(...) is idempotent under duplication; this can only surface a failure the other 10 would have missed; never a double-count.
+DCGM_EXP_XID_ERRORS_COUNT,           gauge,   Count of distinct XID events observed in a trailing window (default 5 min). Always emits; including a 0-valued series when healthy -- confirmed dense via exporter source; safe to alert/graph directly; unlike the sparse field below.
+DCGM_EXP_XID_ERRORS_TOTAL,           counter, Running total of XID events per code since the exporter started. Sparse: no series exists at all for a given 'xid' label until that code has fired at least once -- treat 'no data' as 'never happened'; not as an error.
+
+# ============================================================================
+# OPTIONAL -- hardware/topology specific. Safe on any DCGM-monitored GPU (reads
+# 0/absent without the matching hardware); becomes meaningful with NVLink/
+# NVSwitch, C2C/superchip, MIG, vGPU, or a Blackwell fleet using workload power
+# profiles. Kept in a separate block for clarity; consumed by the dashboard's
+# collapsed "Datacenter / hardware-specific" row.
+# Deliberately NOT included: per-link NVLink telemetry (18 links x several
+# field families, ~180 field IDs) and NVSwitch/ConnectX/Grace-CPU-core fields
+# -- out of scope for a per-GPU dashboard; see README.md for how to extend this
+# file with a supplementary per-link CSV on a fleet that needs it.
+# ============================================================================
+
+# --- NVLink (aggregated across all links) ---
+DCGM_FI_DEV_NVLINK_P2P_STATUS,       gauge,   Bitmap of NVLink P2P status from this GPU to every other GPU on the host. 0/absent without NVLink; or with a single GPU.
+DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL,  counter, Cumulative NVLink bandwidth (bytes); across all links and directions.
+DCGM_FI_DEV_NVLINK_CRC_FLIT_ERROR_TOTAL, counter, Cumulative NVLink flow-control CRC errors; all links.
+DCGM_FI_DEV_NVLINK_CRC_DATA_ERROR_TOTAL, counter, Cumulative NVLink data CRC errors; all links.
+DCGM_FI_DEV_NVLINK_REPLAY_ERROR_TOTAL,   counter, Cumulative NVLink replay (retry) errors; all links.
+DCGM_FI_DEV_NVLINK_RECOVERY_ERROR_TOTAL, counter, Cumulative NVLink link-recovery errors; all links.
+DCGM_FI_DEV_NVLINK_ERROR,            gauge,   GPU NVLink error information/state.
+
+# --- Profiling: NVLink / C2C / host-peer cache (needs physical NVLink or C2C hardware) ---
+DCGM_FI_PROF_NVLINK_TX_BYTES,        gauge,   NVLink TX bandwidth; instantaneous rate (bytes/s); all links. Already a rate.
+DCGM_FI_PROF_NVLINK_RX_BYTES,        gauge,   NVLink RX bandwidth; instantaneous rate (bytes/s); all links. Already a rate.
+DCGM_FI_PROF_C2C_TX_ALL_BYTES,       gauge,   Chip-to-chip (Grace-Blackwell superchip) TX bandwidth including protocol overhead; instantaneous rate (bytes/s).
+DCGM_FI_PROF_C2C_TX_DATA_BYTES,      gauge,   Chip-to-chip data-only TX bandwidth; instantaneous rate (bytes/s).
+DCGM_FI_PROF_C2C_RX_ALL_BYTES,       gauge,   Chip-to-chip RX bandwidth including protocol overhead; instantaneous rate (bytes/s).
+DCGM_FI_PROF_C2C_RX_DATA_BYTES,      gauge,   Chip-to-chip data-only RX bandwidth; instantaneous rate (bytes/s).
+DCGM_FI_PROF_HOSTMEM_CACHE_HIT,      gauge,   Percentage of host-memory requests served from cache.
+DCGM_FI_PROF_HOSTMEM_CACHE_MISS,     gauge,   Percentage of host-memory requests that missed cache.
+DCGM_FI_PROF_PEERMEM_CACHE_HIT,      gauge,   Percentage of peer-GPU-memory requests served from cache.
+DCGM_FI_PROF_PEERMEM_CACHE_MISS,     gauge,   Percentage of peer-GPU-memory requests that missed cache.
+
+# --- Fabric Manager / IMEX / C2C link management (NVSwitch fabrics, Grace-Blackwell superchips) ---
+DCGM_FI_DEV_FABRIC_MANAGER_STATUS,   gauge,   Fabric Manager status (dcgmFabricManagerStatus_t). 0/absent without an NVSwitch fabric.
+DCGM_FI_DEV_FABRIC_MANAGER_ERROR,    gauge,   Fabric Manager startup error code; if any.
+DCGM_FI_DEV_FABRIC_CLUSTER_UUID,     label,   UUID of the fabric cluster this GPU belongs to (NVSwitch fabrics only).
+DCGM_FI_DEV_FABRIC_CLIQUE_ID,        gauge,   ID of the fabric clique this GPU belongs to (NVSwitch fabrics only).
+DCGM_FI_DEV_FABRIC_HEALTH_MASK,      gauge,   GPU fabric health status bitmask.
+DCGM_FI_DEV_FABRIC_HEALTH_SUMMARY,   gauge,   GPU fabric health summary (overall fabric health enum).
+DCGM_FI_DEV_C2C_LINK_QUANTITY,       gauge,   Number of active chip-to-chip (C2C) links (Grace-Blackwell superchips only).
+DCGM_FI_DEV_C2C_LINK_STATUS,         gauge,   C2C link status (0 = inactive; 1 = active).
+DCGM_FI_DEV_C2C_LINK_ERROR_TOTAL,    counter, Cumulative C2C link errors.
+DCGM_FI_DEV_C2C_LINK_REPLAY_ERROR_TOTAL,     counter, Cumulative C2C link replay errors.
+DCGM_FI_DEV_C2C_LINK_REPLAY_ERROR_B2B_TOTAL, counter, Cumulative back-to-back C2C link replay errors (a burst pattern worth alerting on separately from isolated replays).
+DCGM_FI_DEV_C2C_LINK_POWER_STATUS,   gauge,   C2C link power state.
+DCGM_FI_IMEX_DOMAIN_STATUS,          label,   IMEX (multi-node memory export) domain status: UP/DOWN/DEGRADED.
+DCGM_FI_IMEX_DAEMON_STATUS,          gauge,   IMEX daemon status code (0-7). -1 when nvidia-imex is not running.
+
+# --- Advanced power (Blackwell fleets: workload power profiles, power smoothing, superchip module power) ---
+DCGM_FI_DEV_BOARD_POWER_PROFILE_REQUESTED_MASK, gauge, Requested workload power-profile bitmask (Blackwell+ fleets).
+DCGM_FI_DEV_BOARD_POWER_PROFILE_ENFORCED_MASK,  gauge, Enforced workload power-profile bitmask (Blackwell+ fleets).
+DCGM_FI_DEV_BOARD_POWER_PROFILE_SUPPORTED_MASK, gauge, Supported workload power-profile bitmask (Blackwell+ fleets) -- which profiles this GPU can run.
+DCGM_FI_DEV_PWR_SMOOTHING_ENABLED,   gauge,   Power-smoothing feature enabled (0/1) -- a Blackwell large-fleet feature that flattens power draw spikes.
+DCGM_FI_DEV_SYSIO_POWER_WATTS,       gauge,   System-I/O rail power draw (W) -- Grace-Blackwell superchip modules only.
+DCGM_FI_DEV_MODULE_POWER_WATTS,      gauge,   Total module power draw (W); including non-GPU components -- superchip/large-module SKUs only.
+
+# --- MIG (datacenter GPUs with Multi-Instance GPU enabled: A100/H100/B100-class) ---
+DCGM_FI_DEV_MIG_MODE,                gauge,   MIG mode (0 = disabled; 1 = enabled). Gate any MIG-detail panel on this being 1.
+DCGM_FI_DEV_MIG_MAX_SLICES,          gauge,   Maximum number of MIG slices this GPU supports. 0 on non-MIG-capable GPUs (including this workstation SKU).
+DCGM_FI_CUDA_GPU_VISIBLE_DEVICES,    label,   CUDA_VISIBLE_DEVICES string for this entity; including the MIG instance suffix when applicable.
+DCGM_FI_DEV_MIG_ATTRIBUTES,          gauge,   Attributes for the MIG device handle(s) on this GPU. Verify on a real MIG-enabled host before relying on it in production.
+DCGM_FI_DEV_MIG_GI_INFO,             gauge,   GPU-instance (GI) profile information for MIG. Verify on a real MIG-enabled host before relying on it in production.
+DCGM_FI_DEV_MIG_CI_INFO,             gauge,   Compute-instance (CI) profile information for MIG. Verify on a real MIG-enabled host before relying on it in production.
+
+# --- vGPU (GPU-virtualization hosts) ---
+DCGM_FI_DEV_VGPU_LICENSE_STATUS,     gauge,   vGPU license status (0 = unlicensed; 1 = licensed). 0/absent on bare-metal hosts.
