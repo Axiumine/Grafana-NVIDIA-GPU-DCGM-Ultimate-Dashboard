@@ -72,7 +72,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "blue"), (0.5, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (0.5, "green")]),
             description="The signature 'AI efficiency' panel. GPU_UTIL (DCGM's copy of nvidia-smi's "
             "utilization%, /100'd here to share the 0-1 axis) only means 'some kernel is "
             "running' -- it can read 100% while the GPU is almost idle underneath. "
@@ -97,7 +97,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "blue"), (0.5, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (0.5, "green")]),
             description="Resident warps / theoretical max warps per SM, averaged over the whole GPU. "
             "Higher is better ONLY for memory- or latency-bound kernels (more resident warps "
             "gives the scheduler more chances to hide a stall behind another warp); for a "
@@ -118,7 +118,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "blue"), (0.5, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (0.5, "green")]),
             description="Fraction of cycles the memory interface was sending/receiving data. Achieved "
             "bandwidth is approximately this ratio times the GPU's peak memory bandwidth "
             "(see panel 28). Practical achievable peak is roughly 0.8, not 1.0 -- a "
@@ -154,7 +154,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             legend_calcs=["lastNotNull"],
             legend_sort_by="Last *",
             legend_sort_desc=True,
-            thresholds_steps=lib.thresholds([(0, "blue"), (0.5, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (0.5, "green")]),
             description="Which execution pipe a workload actually hits, stacked so the mix over time is "
             "visible at a glance -- no nvidia-smi-based dashboard can show this at all (it has "
             "no per-pipe activity counters). FP64/FP32/FP16 are the non-tensor pipes; IMMA "
@@ -282,7 +282,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percent",
             min_=0,
             max_=100,
-            thresholds_steps=lib.thresholds([(0, "blue"), (50, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (50, "green")]),
             description="Direct dashboard-14574-parity panel: the same three 0-100% utilization "
             "gauges nvidia-smi itself reports (memory-controller, NVENC, NVDEC), for "
             "anyone cross-checking against older nvidia-smi-based tooling or dashboards. "

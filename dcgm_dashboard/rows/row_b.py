@@ -75,7 +75,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percent",
             min_=0,
             max_=100,
-            thresholds_steps=lib.thresholds([(0, "blue"), (50, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (50, "green")]),
         )
     )
     panels.append(
@@ -90,7 +90,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "blue"), (0.5, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (0.5, "green")]),
             description="NVIDIA guidance: >=0.8 is genuinely good; 0.5 is the 'worth a look' floor, not a target.",
         )
     )
@@ -106,7 +106,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "blue"), (0.3, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (0.3, "green")]),
         )
     )
     panels.append(
@@ -121,7 +121,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "green"), (0.85, "yellow"), (0.95, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (0.85, "yellow"), (0.95, "red")]),
         )
     )
     panels.append(
@@ -143,7 +143,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "green"), (0.85, "yellow"), (0.95, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (0.85, "yellow"), (0.95, "red")]),
             description="Ratio, not an absolute gauge with a dynamic max: Grafana's gauge max is a single "
             "static number, so the ratio is computed in PromQL instead. Absolute Watts in panel 48. "
             "Each side of the division is pre-aggregated via lib.per_gpu() before the on(UUID) "
@@ -175,7 +175,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "green"), (0.85, "yellow"), (0.95, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (0.85, "yellow"), (0.95, "red")]),
             description="What percent of this GPU's own slowdown threshold its current temperature is, "
             "both in Celsius (an earlier +273.15 Kelvin-ratio version made "
             "this gauge read a misleadingly high percentage at normal temperatures -- e.g. a "
@@ -204,7 +204,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percent",
             min_=0,
             max_=100,
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Passively-cooled GPUs read 0 -- that is the healthy steady state, not a fault. "
             "Wrapped in lib.per_gpu() (max by GPU identity) on both sides of the fallback: a bare "
             "`max(...) or vector(0)` (the previous version) drops every label on the left "
@@ -229,7 +229,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             4,
             [lib.target(lib.per_gpu(f"DCGM_FI_DEV_PSTATE{f}"), legend=legend, ref_id="A", instant=True)],
             unit_id="none",
-            mappings=lib.pstate_mappings(colored=False),
+            mappings=lib.pstate_mappings(),
             color_mode="none",
             thresholds_steps=lib.no_thresholds(),
             description="No color: P0 is not inherently 'good' or 'bad' in isolation.",

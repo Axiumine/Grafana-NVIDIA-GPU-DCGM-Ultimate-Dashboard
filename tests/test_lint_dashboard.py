@@ -6,8 +6,9 @@ import json
 import runpy
 import sys
 
-import lint_dashboard
 import pytest
+
+from tools import lint_dashboard
 
 
 def test_load_csv_fields_handles_comments_blanks_short_and_unnamed_lines(tmp_path):
@@ -46,6 +47,16 @@ def test_collect_panels_descends_only_into_collapsed_rows():
     ]
 
 
+def test_collect_panels_handles_a_collapsed_row_with_no_panels_key():
+    """A collapsed row missing its own "panels" key must not crash -- the recursive
+    call has to fall back to an empty list, not None."""
+    collapsed_row_no_panels = {"id": 9, "type": "row", "collapsed": True}
+
+    result = lint_dashboard.collect_panels([collapsed_row_no_panels])
+
+    assert result == [(collapsed_row_no_panels, "top")]
+
+
 def test_check_ids_and_overlap_flags_missing_and_duplicate_ids():
     no_id = {"title": "NoID", "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4}}
     first = {"id": 1, "title": "First", "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4}}
@@ -68,8 +79,42 @@ def test_check_ids_and_overlap_flags_width_and_x_plus_w_violations():
     lint_dashboard.check_ids_and_overlap([(ok, "top"), (too_wide, "top"), (off_right, "top")], errors)
 
     assert len(errors) == 2
-    assert any("id=2" in e and "width/x+w>24" in e for e in errors)
-    assert any("id=3" in e and "width/x+w>24" in e for e in errors)
+    assert any("id=2" in e and "'TooWide'" in e and "width/x+w>24" in e for e in errors)
+    assert any("id=3" in e and "'OffRight'" in e and "width/x+w>24" in e for e in errors)
+
+
+def test_check_ids_and_overlap_width_check_is_a_strict_greater_than_24():
+    at_boundary = {"id": 1, "title": "AtBoundary", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 4}}
+    # x=-1 keeps x+w (=24) at the boundary too, so only the w>24 comparison can flag this.
+    over_boundary = {"id": 2, "title": "OverBoundary", "gridPos": {"x": -1, "y": 10, "w": 25, "h": 4}}
+
+    errors: list = []
+    lint_dashboard.check_ids_and_overlap([(at_boundary, "top"), (over_boundary, "top")], errors)
+
+    assert len(errors) == 1
+    assert "id=2" in errors[0]
+
+
+def test_check_ids_and_overlap_x_plus_w_check_is_a_strict_greater_than_24():
+    at_boundary = {"id": 1, "title": "AtBoundary", "gridPos": {"x": 14, "y": 0, "w": 10, "h": 4}}
+    over_boundary = {"id": 2, "title": "OverBoundary", "gridPos": {"x": 15, "y": 10, "w": 10, "h": 4}}
+
+    errors: list = []
+    lint_dashboard.check_ids_and_overlap([(at_boundary, "top"), (over_boundary, "top")], errors)
+
+    assert len(errors) == 1
+    assert "id=2" in errors[0]
+
+
+def test_check_ids_and_overlap_width_check_keeps_scanning_past_a_gridless_panel():
+    no_grid = {"id": 1, "title": "NoGrid"}
+    too_wide = {"id": 2, "title": "TooWide", "gridPos": {"x": 0, "y": 0, "w": 25, "h": 4}}
+
+    errors: list = []
+    lint_dashboard.check_ids_and_overlap([(no_grid, "top"), (too_wide, "top")], errors)
+
+    assert len(errors) == 1
+    assert "id=2" in errors[0]
 
 
 def test_check_ids_and_overlap_flags_overlap_within_space_but_not_across_spaces():
@@ -83,8 +128,40 @@ def test_check_ids_and_overlap_flags_overlap_within_space_but_not_across_spaces(
 
     assert len(errors) == 1
     assert "id=10" in errors[0]
+    assert "'TopA'" in errors[0]
     assert "id=11" in errors[0]
+    assert "'TopB'" in errors[0]
     assert "id=12" not in errors[0]
+
+
+def test_check_ids_and_overlap_overlap_scan_keeps_scanning_past_a_gridless_leading_panel():
+    """The outer `i` loop's `if not gi: continue` must not stop scanning entirely --
+    a leading gridless panel would otherwise hide every real overlap after it."""
+    no_grid = {"id": 1, "title": "NoGrid"}
+    a = {"id": 2, "title": "A", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}}
+    b = {"id": 3, "title": "B", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}}  # overlaps a
+
+    errors: list = []
+    lint_dashboard.check_ids_and_overlap([(no_grid, "top"), (a, "top"), (b, "top")], errors)
+
+    assert len(errors) == 1
+    assert "id=2" in errors[0]
+    assert "id=3" in errors[0]
+
+
+def test_check_ids_and_overlap_overlap_scan_keeps_scanning_past_a_gridless_middle_panel():
+    """The inner `j` loop's `if not gj: continue` must not stop scanning entirely --
+    a gridless panel between two overlapping ones would otherwise hide the overlap."""
+    a = {"id": 1, "title": "A", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}}
+    no_grid = {"id": 2, "title": "NoGrid"}
+    b = {"id": 3, "title": "B", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}}  # overlaps a
+
+    errors: list = []
+    lint_dashboard.check_ids_and_overlap([(a, "top"), (no_grid, "top"), (b, "top")], errors)
+
+    assert len(errors) == 1
+    assert "id=1" in errors[0]
+    assert "id=3" in errors[0]
 
 
 def test_check_ids_and_overlap_skips_panels_without_gridpos():
@@ -134,6 +211,51 @@ def test_check_datasources_flags_bad_panel_and_target_ds_and_skips_row_text():
     assert any("target[A]" in e and "id=5" in e for e in errors)
 
 
+def test_check_datasources_missing_panel_datasource_is_not_an_error():
+    """A missing "datasource" key is allowed (panels can inherit it) -- only an
+    explicit, wrong one is an error. Isolated from any target check (no "targets"
+    key at all) so the panel-level `ds is not None` branch is what's on trial."""
+    no_ds_panel = {"id": 4, "type": "timeseries"}
+
+    errors: list = []
+    lint_dashboard.check_datasources([(no_ds_panel, "top")], errors)
+
+    assert errors == []
+
+
+def test_check_datasources_panel_level_message_reports_this_panels_id_and_title():
+    """Isolated from the target-level message (no "targets" key) so a mutation of
+    the panel-level id/title can't hide behind the identical-looking target error."""
+    bad_panel = {"id": 9, "title": "PanelOnly", "type": "timeseries", "datasource": {"type": "influx"}}
+
+    errors: list = []
+    lint_dashboard.check_datasources([(bad_panel, "top")], errors)
+
+    assert len(errors) == 1
+    assert "panel id=9" in errors[0]
+    assert "'PanelOnly'" in errors[0]
+
+
+def test_check_datasources_target_level_message_reports_panel_id_title_and_refid():
+    """Panel-level datasource is good (EXPECTED_DS), so only the target-level branch
+    can produce this error, isolating its id/title/refId from the panel-level ones."""
+    panel = {
+        "id": 9,
+        "title": "PanelOnly",
+        "type": "timeseries",
+        "datasource": lint_dashboard.EXPECTED_DS,
+        "targets": [{"refId": "B", "datasource": {"type": "influx"}}],
+    }
+
+    errors: list = []
+    lint_dashboard.check_datasources([(panel, "top")], errors)
+
+    assert len(errors) == 1
+    assert "panel id=9" in errors[0]
+    assert "'PanelOnly'" in errors[0]
+    assert "target[B]" in errors[0]
+
+
 def test_check_units_flags_only_unverified_units():
     no_field_config = {"id": 1, "type": "timeseries"}
     valid_unit = {"id": 2, "fieldConfig": {"defaults": {"unit": "watt"}}}
@@ -144,6 +266,7 @@ def test_check_units_flags_only_unverified_units():
 
     assert len(errors) == 1
     assert "id=3" in errors[0]
+    assert "'Bad'" in errors[0]
     assert "'furlongs'" in errors[0]
 
 
@@ -194,13 +317,61 @@ def test_check_byregexp_delimited_skips_other_matchers_and_missing_overrides():
     other_matcher = {"id": 1, "fieldConfig": {"overrides": [{"matcher": {"id": "byName", "options": "foo"}}]}}
     no_overrides = {"id": 2, "fieldConfig": {"defaults": {}}}
     no_field_config = {"id": 3}
+    missing_matcher = {"id": 4, "fieldConfig": {"overrides": [{}]}}  # override with no "matcher" key at all
 
     errors: list = []
     lint_dashboard.check_byregexp_delimited(
-        [(other_matcher, "top"), (no_overrides, "top"), (no_field_config, "top")], errors
+        [(other_matcher, "top"), (no_overrides, "top"), (no_field_config, "top"), (missing_matcher, "top")], errors
     )
 
     assert errors == []
+
+
+def test_check_byregexp_delimited_keeps_scanning_overrides_past_a_non_byregexp_one():
+    panel = {
+        "id": 5,
+        "title": "P",
+        "fieldConfig": {
+            "overrides": [
+                {"matcher": {"id": "byName", "options": "foo"}},
+                {"matcher": {"id": "byRegexp", "options": "bad"}},
+            ]
+        },
+    }
+
+    errors: list = []
+    lint_dashboard.check_byregexp_delimited([(panel, "top")], errors)
+
+    assert len(errors) == 1
+
+
+def test_check_byregexp_delimited_missing_options_key_defaults_to_empty_string():
+    """No "options" key at all: the message must show the empty-string default
+    (`''`), not a `None` (or other) fallback -- pins the exact default value, not
+    just that *an* error fires (isinstance(None, str) is False too, so a wrong
+    default would still trip the same error without this check)."""
+    panel = {"id": 6, "title": "P", "fieldConfig": {"overrides": [{"matcher": {"id": "byRegexp"}}]}}
+
+    errors: list = []
+    lint_dashboard.check_byregexp_delimited([(panel, "top")], errors)
+
+    assert len(errors) == 1
+    assert "''" in errors[0]
+
+
+def test_check_byregexp_delimited_message_reports_panel_id_and_title():
+    panel = {
+        "id": 7,
+        "title": "Regexy",
+        "fieldConfig": {"overrides": [{"matcher": {"id": "byRegexp", "options": "bad"}}]},
+    }
+
+    errors: list = []
+    lint_dashboard.check_byregexp_delimited([(panel, "top")], errors)
+
+    assert len(errors) == 1
+    assert "panel id=7" in errors[0]
+    assert "'Regexy'" in errors[0]
 
 
 def test_check_no_kelvin_flags_273_15_literal_only():
@@ -214,6 +385,8 @@ def test_check_no_kelvin_flags_273_15_literal_only():
     assert len(errors) == 1
     assert "273.15" in errors[0]
     assert "id=3" in errors[0]
+    assert "'K'" in errors[0]
+    assert "target[B]" in errors[0]
 
 
 def test_check_csv_coverage_warns_only_for_unused_fields():
@@ -253,6 +426,37 @@ def test_check_rate_over_gauge_warns_only_for_non_counter_fields(expr, should_wa
     lint_dashboard.check_rate_over_gauge(panels, csv_fields, warnings)
 
     assert bool(warnings) is should_warn
+
+
+def test_check_rate_over_gauge_skips_targets_with_no_expr_and_keeps_checking_the_rest():
+    """A target with no "expr" key at all must be skipped, not crash the scan (the
+    `if not expr: continue` guard), and scanning must continue past it to later
+    targets in the same panel."""
+    csv_fields = {"GAUGE_FIELD": "gauge"}
+    no_expr_target = {"refId": "A"}
+    warn_target = {"refId": "B", "expr": "rate(GAUGE_FIELD[5m])"}
+    panels = [({"id": 1, "title": "P", "targets": [no_expr_target, warn_target]}, "top")]
+
+    warnings: list = []
+    lint_dashboard.check_rate_over_gauge(panels, csv_fields, warnings)
+
+    assert len(warnings) == 1
+    assert "target[B]" in warnings[0]
+
+
+def test_check_rate_over_gauge_message_reports_panel_id_title_refid_field_and_type():
+    csv_fields = {"GAUGE_FIELD": "gauge"}
+    panel = {"id": 42, "title": "GaugePanel", "targets": [{"refId": "C", "expr": "rate(GAUGE_FIELD[5m])"}]}
+
+    warnings: list = []
+    lint_dashboard.check_rate_over_gauge([(panel, "top")], csv_fields, warnings)
+
+    assert len(warnings) == 1
+    assert "panel id=42" in warnings[0]
+    assert "'GaugePanel'" in warnings[0]
+    assert "target[C]" in warnings[0]
+    assert "'GAUGE_FIELD'" in warnings[0]
+    assert "'gauge'" in warnings[0]
 
 
 def _build_panel(panel_id, *, unit="watt", expr="sum(rate(COUNTER_FIELD[5m]))", x=0, y=0, w=6, h=4):
@@ -340,6 +544,64 @@ def test_main_summary_line_reports_distinct_error_and_warning_counts(tmp_path, m
     assert len([line for line in out.splitlines() if line.startswith("ERROR:")]) == 1
     assert len([line for line in out.splitlines() if line.startswith("WARN:")]) == 3
     assert "2 panels checked, 1 error(s), 3 warning(s)." in out
+
+
+def test_main_help_shows_the_docstring_with_its_raw_line_breaks_preserved(monkeypatch, capsys):
+    """Pins both description=__doc__ (the text appears at all) and
+    formatter_class=RawDescriptionHelpFormatter (the bullet list's own line breaks
+    and indentation survive) -- the default HelpFormatter would reflow the
+    docstring into wrapped paragraphs and lose the "  - " indentation entirely."""
+    monkeypatch.setattr(sys, "argv", ["lint_dashboard.py", "--help"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        lint_dashboard.main()
+    out = capsys.readouterr().out
+
+    assert exc_info.value.code == 0
+    assert "Static checks on a built dashboard JSON." in out
+    assert "\n  - duplicate panel ids\n" in out
+
+
+def test_main_dashboard_with_no_panels_key_checks_zero_panels_without_crashing(tmp_path, monkeypatch, capsys):
+    json_path = tmp_path / "dash.json"
+    json_path.write_text(json.dumps({}))
+    csv_path = tmp_path / "counters.csv"
+    csv_path.write_text("")
+
+    monkeypatch.setattr(sys, "argv", ["lint_dashboard.py", str(json_path), "--csv", str(csv_path)])
+    exit_code = lint_dashboard.main()
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "0 panels checked, 0 error(s), 0 warning(s)." in out
+
+
+def test_main_reports_an_error_from_every_hard_error_category(tmp_path, monkeypatch, capsys):
+    """Each check_*(all_panels, errors) call in main() must be wired to the real,
+    shared `errors` list: a dashboard that trips every category at once means a call
+    accidentally passed something else (e.g. None) would blow up with an
+    AttributeError instead of quietly doing nothing, failing this test either way."""
+    bad_ds_panel = _build_panel(1, x=0)
+    bad_ds_panel["datasource"] = {"type": "influx"}
+    bad_unit_panel = _build_panel(2, x=8, unit="furlongs")
+    bad_regexp_panel = _build_panel(3, x=16)
+    bad_regexp_panel["fieldConfig"]["overrides"] = [{"matcher": {"id": "byRegexp", "options": "bad"}}]
+    kelvin_panel = _build_panel(4, x=0, y=10, expr="(x - 273.15) / y")
+    dashboard = {"panels": [bad_ds_panel, bad_unit_panel, bad_regexp_panel, kelvin_panel]}
+    json_path = tmp_path / "dash.json"
+    json_path.write_text(json.dumps(dashboard))
+    csv_path = tmp_path / "counters.csv"
+    csv_path.write_text("COUNTER_FIELD,counter,a counter\n")
+
+    monkeypatch.setattr(sys, "argv", ["lint_dashboard.py", str(json_path), "--csv", str(csv_path)])
+    exit_code = lint_dashboard.main()
+    out = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "datasource !=" in out
+    assert "unknown/unverified unit" in out
+    assert "byRegexp override options not slash-delimited" in out
+    assert "273.15" in out
 
 
 def test_main_default_csv_resolves_from_project_root_regardless_of_cwd(tmp_path, monkeypatch, capsys):

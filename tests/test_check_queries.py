@@ -6,15 +6,50 @@ import json
 import runpy
 import sys
 
-import check_queries
 import pytest
 from prometheus_stub import closed_port_url
+
+from tools import check_queries
 
 
 def _write_dashboard(tmp_path, dashboard: dict, name: str = "dash.json"):
     path = tmp_path / name
     path.write_text(json.dumps(dashboard))
     return path
+
+
+class _FakeUrlopenResponse:
+    """Minimal stand-in for the object urllib.request.urlopen() returns -- just
+    enough (read() + context-manager protocol) to test the exact request
+    check_queries builds without touching the network."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> _FakeUrlopenResponse:
+        return self
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
+
+
+def _recording_urlopen(monkeypatch, body: bytes = b'{"status": "success", "data": []}') -> list:
+    """Replaces urllib.request.urlopen with a stub that records every (url, kwargs)
+    call instead of hitting the network, and returns the list those calls land in.
+    Used to pin the exact request URL and timeout -- both otherwise unobservable
+    through the fake Prometheus, which normalizes away things like a doubled slash
+    or a stray unescaped path segment via its own path parsing."""
+    calls = []
+
+    def fake_urlopen(url, **kwargs):
+        calls.append((url, kwargs))
+        return _FakeUrlopenResponse(body)
+
+    monkeypatch.setattr(check_queries.urllib.request, "urlopen", fake_urlopen)
+    return calls
 
 
 # --------------------------------------------------------------------------- #
@@ -77,6 +112,21 @@ def test_fetch_a_real_gpu_uuid_falls_back_on_connection_error():
     assert check_queries.fetch_a_real_gpu_uuid(closed_port_url()) == ".*"
 
 
+def test_fetch_a_real_gpu_uuid_strips_exactly_one_trailing_slash(monkeypatch):
+    calls = _recording_urlopen(monkeypatch, b'{"status": "success", "data": ["real-uuid"]}')
+    assert check_queries.fetch_a_real_gpu_uuid("http://prom.example/") == "real-uuid"
+    assert calls == [("http://prom.example/api/v1/label/UUID/values", {"timeout": 10})]
+
+
+def test_fetch_a_real_gpu_uuid_does_not_strip_trailing_non_slash_chars(monkeypatch):
+    # Pins the exact "/" strip set (not a wider one that would also eat an "X") and
+    # the exact timeout -- both invisible through the fake Prometheus, which would
+    # 404 either way on the resulting mismatched path.
+    calls = _recording_urlopen(monkeypatch, b'{"status": "success", "data": ["real-uuid"]}')
+    check_queries.fetch_a_real_gpu_uuid("http://prom.example/X")
+    assert calls == [("http://prom.example/X/api/v1/label/UUID/values", {"timeout": 10})]
+
+
 # --------------------------------------------------------------------------- #
 # label_values
 # --------------------------------------------------------------------------- #
@@ -102,6 +152,26 @@ def test_label_values_missing_data_key_returns_empty_list(prometheus_stub):
 
 def test_label_values_returns_empty_list_on_error():
     assert check_queries.label_values(closed_port_url(), "job", "x") == []
+
+
+def test_label_values_strips_exactly_one_trailing_slash_and_uses_10s_timeout(monkeypatch):
+    calls = _recording_urlopen(monkeypatch)
+    check_queries.label_values("http://prom.example/", "job", "up")
+    assert calls == [("http://prom.example/api/v1/label/job/values?match%5B%5D=up", {"timeout": 10})]
+
+
+def test_label_values_does_not_strip_trailing_non_slash_chars(monkeypatch):
+    calls = _recording_urlopen(monkeypatch)
+    check_queries.label_values("http://prom.example/X", "job", "up")
+    assert calls == [("http://prom.example/X/api/v1/label/job/values?match%5B%5D=up", {"timeout": 10})]
+
+
+def test_label_values_escapes_slash_in_label_name(monkeypatch):
+    # safe="" must be passed through as-is -- the library default (safe="/") would
+    # leave "/" unescaped, folding a label like "a/b" into an extra path segment.
+    calls = _recording_urlopen(monkeypatch)
+    check_queries.label_values("http://prom.example", "a/b", "up")
+    assert calls == [("http://prom.example/api/v1/label/a%2Fb/values?match%5B%5D=up", {"timeout": 10})]
 
 
 # An HTTP error status must fall back like any other failure -- and close the HTTPError:
@@ -145,6 +215,21 @@ def test_fetch_dcgm_job_instance_regex_falls_back_when_jobs_empty(prometheus_stu
     assert check_queries.fetch_dcgm_job_instance_regex(prometheus_stub.url) == (".*", "hostB")
 
 
+def test_fetch_dcgm_job_instance_regex_joins_multiple_instances(prometheus_stub):
+    # A single-instance fixture can't distinguish "|".join(instances) from a
+    # hardcoded single-element result -- exercise 2+ real instances so the "|"
+    # separator is load-bearing.
+    prometheus_stub.responses[("label", "job", "DCGM_FI_DEV_GPU_UTIL")] = {
+        "status": "success",
+        "data": ["nodeA"],
+    }
+    prometheus_stub.responses[("label", "instance", 'DCGM_FI_DEV_GPU_UTIL{job=~"nodeA"}')] = {
+        "status": "success",
+        "data": ["hostA", "hostB"],
+    }
+    assert check_queries.fetch_dcgm_job_instance_regex(prometheus_stub.url) == ("nodeA", "hostA|hostB")
+
+
 def test_fetch_dcgm_job_instance_regex_falls_back_when_instances_empty(prometheus_stub):
     prometheus_stub.responses[("label", "job", "DCGM_FI_DEV_GPU_UTIL")] = {
         "status": "success",
@@ -177,6 +262,9 @@ def test_fetch_dcgm_job_instance_regex_falls_back_when_instances_empty(prometheu
         ('up{job=~"$job"}', {}, ".*", {"job": "a|b"}, 'up{job=~"a|b"}'),
         # $jobxyz must not be partially eaten by the $job substitution.
         ('up{job=~"$jobxyz"}', {}, ".*", {"job": "a|b"}, 'up{job=~"$jobxyz"}'),
+        # Same, but with an uppercase continuation -- the boundary check must cover
+        # the full [A-Za-z0-9_] class, not just the lowercase half of it.
+        ('up{job=~"$jobXYZ"}', {}, ".*", {"job": "a|b"}, 'up{job=~"$jobXYZ"}'),
         # textbox_defaults takes precedence over query_var_subs for the same name.
         ('up{gpu=~"$gpu"}', {"gpu": "OVERRIDE"}, ".*", {"gpu": "fromquery"}, 'up{gpu=~"OVERRIDE"}'),
     ],
@@ -256,9 +344,11 @@ def test_classify_ok_counts_multiple_series(prometheus_stub):
 
 
 def test_classify_ok_matrix_uses_last_value(prometheus_stub):
+    # A 2-point series can't distinguish values[-1] (last) from values[1] (second) --
+    # they're the same element. Use 3 points so the "last, not second" is load-bearing.
     prometheus_stub.responses[("query", "up[5m]")] = {
         "status": "success",
-        "data": {"result": [{"metric": {}, "values": [[1, "1"], [2, "9"]]}]},
+        "data": {"result": [{"metric": {}, "values": [[1, "1"], [2, "5"], [3, "9"]]}]},
     }
     assert check_queries.classify(prometheus_stub.url, "up[5m]") == ("OK", "n=1, sample=9")
 
@@ -274,6 +364,14 @@ def test_classify_ok_result_without_value_or_values(prometheus_stub):
 def test_classify_empty(prometheus_stub):
     prometheus_stub.responses[("query", "absent")] = {"status": "success", "data": {"result": []}}
     assert check_queries.classify(prometheus_stub.url, "absent") == ("EMPTY", "")
+
+
+def test_classify_empty_when_data_key_missing_entirely(prometheus_stub):
+    # body.get("data", {}) must fall back to a dict, not None -- else the chained
+    # .get("result") below would blow up with an AttributeError instead of reading
+    # honestly as EMPTY.
+    prometheus_stub.responses[("query", "no_data")] = {"status": "success"}
+    assert check_queries.classify(prometheus_stub.url, "no_data") == ("EMPTY", "")
 
 
 def test_classify_soft_error_with_message(prometheus_stub):
@@ -311,10 +409,30 @@ def test_classify_non_json_200_body(prometheus_stub):
     assert detail == "Expecting value: line 1 column 1 (char 0)"
 
 
+def test_classify_http_error_with_json_body_missing_error_key(prometheus_stub):
+    # get("error", str(e)) must fall back to str(e), not silently drop the message.
+    prometheus_stub.responses[("query", "bad6")] = (403, {"status": "error"})
+    status, detail = check_queries.classify(prometheus_stub.url, "bad6")
+    assert status == "ERROR"
+    assert "403" in detail
+
+
 def test_classify_connection_error():
     status, detail = check_queries.classify(closed_port_url(), "up")
     assert status == "ERROR"
     assert detail
+
+
+def test_classify_strips_exactly_one_trailing_slash_and_uses_15s_timeout(monkeypatch):
+    calls = _recording_urlopen(monkeypatch, b'{"status": "success", "data": {"result": []}}')
+    check_queries.classify("http://prom.example/", "up")
+    assert calls == [("http://prom.example/api/v1/query?query=up", {"timeout": 15})]
+
+
+def test_classify_does_not_strip_trailing_non_slash_chars(monkeypatch):
+    calls = _recording_urlopen(monkeypatch, b'{"status": "success", "data": {"result": []}}')
+    check_queries.classify("http://prom.example/X", "up")
+    assert calls == [("http://prom.example/X/api/v1/query?query=up", {"timeout": 15})]
 
 
 # --------------------------------------------------------------------------- #
@@ -354,7 +472,9 @@ def test_main_ok_empty_error_and_exit_code(monkeypatch, tmp_path, prometheus_stu
 
     assert rc == 1
     assert "panel 1 'Panel OK' [A]: OK(n=1, sample=5)" in out
-    assert "panel 2 'Panel Empty' [A]: EMPTY" in out
+    # The trailing "\n" matters: EMPTY's detail is "", so nothing -- not even an
+    # empty "()" -- must be appended after the status.
+    assert "panel 2 'Panel Empty' [A]: EMPTY\n" in out
     assert "panel 3 'Panel Error' [A]: ERROR(nope)" in out
     assert "expr: metric_error" in err
     # The expr dump is an ERROR-only diagnostic -- OK/EMPTY targets must not trigger it.
@@ -425,6 +545,102 @@ def test_main_skips_targets_without_expr(monkeypatch, tmp_path, prometheus_stub,
     assert "[A]: EMPTY" in out
     assert "[B]" not in out
     assert "1 target(s) checked." in err
+
+
+def test_main_continues_past_a_target_without_expr_to_later_targets(monkeypatch, tmp_path, prometheus_stub, capsys):
+    # Order matters here (missing expr FIRST): a `break` instead of `continue` would
+    # also skip every later target in the same panel, not just the bad one.
+    dashboard = {
+        "panels": [
+            {
+                "id": 1,
+                "title": "P",
+                "type": "timeseries",
+                "targets": [{"refId": "A"}, {"refId": "B", "expr": "has_expr"}],
+            }
+        ]
+    }
+    path = _write_dashboard(tmp_path, dashboard)
+    prometheus_stub.responses[("query", "has_expr")] = {"status": "success", "data": {"result": []}}
+
+    monkeypatch.setattr(sys, "argv", ["check_queries.py", str(path), "--prom", prometheus_stub.url])
+    rc = check_queries.main()
+    out, err = capsys.readouterr()
+
+    assert rc == 0
+    assert "[B]: EMPTY" in out
+    assert "1 target(s) checked." in err
+
+
+def test_main_checked_count_is_exact(monkeypatch, tmp_path, prometheus_stub, capsys):
+    # "3 target(s) checked." as a substring check can't tell +1 from -1 (a run that
+    # decremented from 0 would print "-3 target(s) checked.", which still contains
+    # that substring) -- so this pins the exact printed line instead.
+    dashboard = {
+        "panels": [
+            {"id": pid, "title": f"P{pid}", "type": "timeseries", "targets": [{"refId": "A", "expr": f"m{pid}"}]}
+            for pid in (1, 2)
+        ]
+    }
+    path = _write_dashboard(tmp_path, dashboard)
+    for pid in (1, 2):
+        prometheus_stub.responses[("query", f"m{pid}")] = {"status": "success", "data": {"result": []}}
+
+    monkeypatch.setattr(sys, "argv", ["check_queries.py", str(path), "--prom", prometheus_stub.url])
+    check_queries.main()
+    _, err = capsys.readouterr()
+
+    assert err.strip().splitlines()[-1] == "2 target(s) checked."
+
+
+def test_main_panel_without_title_key_uses_empty_string(monkeypatch, tmp_path, prometheus_stub, capsys):
+    dashboard = {"panels": [{"id": 1, "type": "timeseries", "targets": [{"refId": "A", "expr": "m"}]}]}
+    path = _write_dashboard(tmp_path, dashboard)
+    prometheus_stub.responses[("query", "m")] = {"status": "success", "data": {"result": []}}
+
+    monkeypatch.setattr(sys, "argv", ["check_queries.py", str(path), "--prom", prometheus_stub.url])
+    check_queries.main()
+    out, _ = capsys.readouterr()
+
+    assert "panel 1 '' [A]: EMPTY" in out
+
+
+def test_main_panel_without_targets_key_checks_nothing(monkeypatch, tmp_path, prometheus_stub, capsys):
+    dashboard = {"panels": [{"id": 1, "title": "P", "type": "timeseries"}]}
+    path = _write_dashboard(tmp_path, dashboard)
+
+    monkeypatch.setattr(sys, "argv", ["check_queries.py", str(path), "--prom", prometheus_stub.url])
+    rc = check_queries.main()
+    _, err = capsys.readouterr()
+
+    assert rc == 0
+    assert "0 target(s) checked." in err
+
+
+def test_main_dashboard_without_panels_key_checks_nothing(monkeypatch, tmp_path, prometheus_stub, capsys):
+    path = _write_dashboard(tmp_path, {})
+
+    monkeypatch.setattr(sys, "argv", ["check_queries.py", str(path), "--prom", prometheus_stub.url])
+    rc = check_queries.main()
+    out, err = capsys.readouterr()
+
+    assert rc == 0
+    assert out == ""
+    assert "0 target(s) checked." in err
+
+
+def test_main_uses_default_prom_url_when_not_specified(monkeypatch, tmp_path, prometheus_stub, capsys):
+    monkeypatch.setattr(check_queries, "DEFAULT_PROM_URL", prometheus_stub.url)
+    dashboard = {"panels": [{"id": 1, "title": "P", "type": "timeseries", "targets": [{"refId": "A", "expr": "m"}]}]}
+    path = _write_dashboard(tmp_path, dashboard)
+    prometheus_stub.responses[("query", "m")] = {"status": "success", "data": {"result": []}}
+
+    monkeypatch.setattr(sys, "argv", ["check_queries.py", str(path)])  # no --prom/--prom-url
+    rc = check_queries.main()
+    out, _ = capsys.readouterr()
+
+    assert rc == 0
+    assert "[A]: EMPTY" in out
 
 
 def test_main_target_without_ref_id_uses_placeholder(monkeypatch, tmp_path, prometheus_stub, capsys):
@@ -544,6 +760,18 @@ def test_main_help_shows_default_prom_url(monkeypatch, capsys):
     out, _ = capsys.readouterr()
     assert exc_info.value.code == 0
     assert "default: http://localhost:9090" in out
+    # RawDescriptionHelpFormatter must be used, or argparse's default formatter
+    # collapses the docstring into one reflowed paragraph -- a coincidental word-wrap
+    # at the same width could still line-break at the same spot as the original, so
+    # this checks a paragraph *break* (a blank line default reflow always erases)
+    # rather than a single line break (which reflow can accidentally reproduce).
+    assert "whether it returns data.\n\nUsage: uv run tools/check_queries.py" in out
+    assert "comma-separated panel ids to restrict to" in out
+    assert "XX" not in out
+    # Both spellings of the flag must be registered as the *same* option (so they
+    # share one dest and appear together here), not just one that happens to work
+    # as an unambiguous abbreviation of the other.
+    assert "--prom, --prom-url PROM" in out
 
 
 def test_main_block_via_runpy(monkeypatch, tmp_path, prometheus_stub, project_root):

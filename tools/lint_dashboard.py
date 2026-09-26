@@ -50,7 +50,7 @@ def load_csv_fields(csv_path: pathlib.Path) -> dict:
             s = line.strip()
             if not s or s.startswith("#"):
                 continue
-            parts = line.split(",", 2)
+            parts = line.split(",")  # only parts[0:2] are read below; no maxsplit needed to bound them
             if len(parts) < 2:
                 continue
             name = parts[0].strip()
@@ -167,8 +167,8 @@ def check_no_kelvin(all_panels, errors):
     panel 17."""
     for p, _ in all_panels:
         for t in p.get("targets", []):
-            expr = t.get("expr", "")
-            if "273.15" in expr:
+            expr = t.get("expr")
+            if expr and "273.15" in expr:
                 errors.append(
                     f"panel id={p.get('id')} {p.get('title')!r} target[{t.get('refId')}] "
                     f"expr contains '273.15' (Kelvin-ratio bug pattern): {expr!r}"
@@ -187,7 +187,9 @@ def check_rate_over_gauge(all_panels, csv_fields, warnings):
     pattern = re.compile(r"(?:rate|increase)\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*[\{\[]")
     for p, _ in all_panels:
         for t in p.get("targets", []):
-            expr = t.get("expr", "")
+            expr = t.get("expr")
+            if not expr:
+                continue
             for m in pattern.finditer(expr):
                 field = m.group(1)
                 ftype = csv_fields.get(field)

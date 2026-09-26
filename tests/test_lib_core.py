@@ -70,6 +70,12 @@ def test_with_filter_selects_single_vs_multi_gpu_filter(single, expected_filter)
     assert lib.with_filter("DCGM_FI_DEV_GPU_UTIL", single=single) == "DCGM_FI_DEV_GPU_UTIL" + expected_filter
 
 
+def test_with_filter_default_single_is_false():
+    # single has no explicit arg here -- locks in the default (FILTER_ALL, not
+    # FILTER_SINGLE) separately from the parametrized, always-explicit test above.
+    assert lib.with_filter("DCGM_FI_DEV_GPU_UTIL") == "DCGM_FI_DEV_GPU_UTIL" + lib.FILTER_ALL
+
+
 def test_units_table_is_exactly_the_verified_grafana_ids():
     # Literal expectation (not mirrored from lib.UNITS) so a mutated/dropped/renamed
     # entry is caught -- tools/lint_dashboard.py trusts this exact table.
@@ -117,8 +123,20 @@ def test_excel_ref_ids_double_letters_after_z():
     assert len(ids) == len(set(ids)) == 30  # every refId unique
 
 
+def test_excel_ref_ids_three_letters_after_zz():
+    # Exercises a 3rd bijective-base-26 digit -- the inner loop's `x // 26 - 1` step
+    # (not `+ 1`, which would never reach the `x < 0` break) is what makes ZZ roll
+    # over to AAA rather than looping forever or wrapping wrong. 703 = 26 singles +
+    # 26**2 doubles + the first triple.
+    ids = lib._excel_ref_ids(703)
+    assert ids[-2] == "ZZ"
+    assert ids[-1] == "AAA"
+
+
 def test_target_defaults_have_no_legend_and_range_true():
-    t = lib.target("up")
+    # ref_id has no default (every call site in this codebase already assigns one) --
+    # pass it explicitly and lock in every OTHER param's default.
+    t = lib.target("up", ref_id="A")
     assert t == {
         "expr": "up",
         "refId": "A",
@@ -128,6 +146,11 @@ def test_target_defaults_have_no_legend_and_range_true():
         "format": "time_series",
     }
     assert "legendFormat" not in t
+
+
+def test_target_ref_id_is_required():
+    with pytest.raises(TypeError, match="ref_id"):
+        lib.target("up")
 
 
 def test_target_with_legend_instant_and_hide():
@@ -173,8 +196,19 @@ def test_make_targets_empty_specs():
     assert lib.make_targets([]) == []
 
 
-def test_thresholds_forces_first_step_value_to_none_regardless_of_input():
-    result = lib.thresholds([(999, "green"), (75, "yellow"), (85, "red")])
+def test_make_targets_strict_zip_raises_on_ref_id_length_mismatch(monkeypatch):
+    # _excel_ref_ids(len(specs)) always returns exactly len(specs) ids in normal use,
+    # so zip's strict=True is never exercised through the public API alone -- patch it
+    # to return a mismatched length so a real length mismatch actually reaches the
+    # zip, and confirm strict=True turns it into a raise (strict=False/None/omitted
+    # would instead silently truncate to the shorter of the two).
+    monkeypatch.setattr(lib, "_excel_ref_ids", lambda _n: ["A"])
+    with pytest.raises(ValueError, match="zip"):
+        lib.make_targets([{"expr": "a"}, {"expr": "b"}])
+
+
+def test_thresholds_first_step_value_none_builds_the_step_list():
+    result = lib.thresholds([(None, "green"), (75, "yellow"), (85, "red")])
     assert result == {
         "mode": "absolute",
         "steps": [
@@ -183,6 +217,20 @@ def test_thresholds_forces_first_step_value_to_none_regardless_of_input():
             {"color": "red", "value": 85},
         ],
     }
+
+
+def test_thresholds_rejects_a_non_none_first_step_value():
+    # Grafana's base step never carries a value -- thresholds() used to silently
+    # discard whatever was passed there; it now raises instead of masking the bug.
+    # Full literal message (not just the "got 999" substring) so a wrong index into
+    # `steps` for the suggested rewrite (e.g. steps[1] instead of steps[0]) is caught:
+    # it would quote the *second* step's color ('yellow') instead of the first's.
+    with pytest.raises(ValueError) as exc_info:
+        lib.thresholds([(999, "green"), (75, "yellow"), (85, "red")])
+    assert str(exc_info.value) == (
+        "thresholds(): the first step's value must be None (Grafana's base step never "
+        "carries one), got 999 -- write it as (None, 'green')"
+    )
 
 
 def test_thresholds_custom_mode_and_empty_steps():
@@ -386,6 +434,50 @@ def test_table_join_defaults_no_overrides_no_description_and_custom_join_field()
     assert organize["options"] == {"excludeByName": {"Value #A": True}}
     assert result["fieldConfig"]["overrides"] == []
     assert "description" not in result  # falsy description -> _base_panel omits the key entirely
+
+
+def test_table_join_targets_strict_zip_raises_on_ref_id_length_mismatch(monkeypatch):
+    # Same reasoning as test_make_targets_strict_zip_raises_on_ref_id_length_mismatch:
+    # ref_ids = _excel_ref_ids(len(exprs)) always matches len(exprs) through the
+    # public API, so patch it to a mismatched length to actually exercise strict=True.
+    # value_renames is kept the same (mismatched) length as the patched ref_ids so the
+    # *second* zip (over value_renames, untouched by this mutation) can't raise first
+    # and mask whether the targets-building zip's own strict=True actually fired.
+    monkeypatch.setattr(lib, "_excel_ref_ids", lambda _n: ["A"])
+    with pytest.raises(ValueError, match="zip"):
+        lib.table_join(
+            panel_id=1,
+            title="T",
+            x=0,
+            y=0,
+            w=24,
+            h=6,
+            exprs=["e1", "e2"],
+            identity_fields={},
+            noise_fields=[],
+            value_renames=["only_one"],
+        )
+
+
+def test_table_join_value_renames_strict_zip_raises_on_length_mismatch():
+    # Unlike the exprs/ref_ids zip above, value_renames is caller-supplied and
+    # independent of exprs' length -- a real mismatch here is a genuine caller bug
+    # this codebase's own call sites could make, so it's tested directly (no need to
+    # patch _excel_ref_ids): strict=True must raise rather than silently zip only the
+    # shorter of the two and drop/misalign a rename.
+    with pytest.raises(ValueError, match="zip"):
+        lib.table_join(
+            panel_id=2,
+            title="T2",
+            x=0,
+            y=0,
+            w=24,
+            h=6,
+            exprs=["e1", "e2"],
+            identity_fields={},
+            noise_fields=[],
+            value_renames=["only_one"],
+        )
 
 
 def test_pstate_mappings_uncolored_has_sixteen_entries_no_color():

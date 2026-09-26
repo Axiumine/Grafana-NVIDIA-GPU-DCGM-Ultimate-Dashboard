@@ -1,0 +1,186 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Giovanni Manzoni
+#
+# Pre-push hook: mutation testing. Runs mutmut (config under [tool.mutmut] in
+# pyproject.toml) on every commit being pushed and blocks the push unless every mutant is
+# caught -- a 100% mutation score. A "timeout" mutant counts as caught (it made a test
+# hang, i.e. the suite noticed it) but is listed. Too slow for the pre-commit hook: a full
+# run takes a few minutes.
+#
+# Enable once per clone (same setting as the pre-commit hook):  git config core.hooksPath .githooks
+# Skip for one push:                                             git push --no-verify
+#
+# Each pushed commit is exported (git archive) to a temp dir and checked there, not the
+# working tree, so what is checked is exactly what is pushed -- including which Python,
+# mutmut and pytest run it: uv resolves the commit's .python-version / pyproject.toml /
+# uv.lock, into a hook-private environment under the git dir (created on first use,
+# never touching .venv/). Every run starts from scratch: mutmut's incremental cache does
+# not re-test cached verdicts when only the tests change, so reusing it could pass a push
+# whose tests got weaker. Set UV to override the uv executable.
+
+set -eu
+
+UV=${UV:-uv}
+
+# Pushes whose new commits touch none of the Python sources, the project config, or the
+# data the tests read have nothing to check.
+set -- '*.py' pyproject.toml uv.lock .python-version nvidia-dcgm-dashboard.json custom-counters.csv
+
+git_dir=$(git rev-parse --absolute-git-dir)
+zero=$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')
+commits=
+# stdin: one "<local ref> <local sha> <remote ref> <remote sha>" line per pushed ref.
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+    # Deleting a remote ref pushes nothing.
+    [ "$local_sha" != "$zero" ] || continue
+    if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+        new=$(git rev-list -n 1 "$remote_sha..$local_sha" -- "$@")
+    else
+        # New remote ref (or its old tip is unknown here): the commits no remote has yet.
+        new=$(git rev-list -n 1 "$local_sha" --not --remotes -- "$@")
+    fi
+    [ -n "$new" ] || continue
+    case " $commits " in
+        *" $local_sha "*) ;;
+        *) commits="$commits $local_sha" ;;
+    esac
+done
+[ -n "$commits" ] || exit 0
+
+if ! command -v "$UV" >/dev/null 2>&1; then
+    echo "pre-push: '$UV' not found on PATH -- install uv (https://docs.astral.sh/uv/) or set UV." >&2
+    exit 1
+fi
+
+# git may export GIT_DIR & co. to its hooks; the checks run in a snapshot that is not a
+# repository, so nothing there may resolve to this one.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+env_dir="$git_dir/pre-push-venv"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/dcgm-pre-push.XXXXXX")
+child=
+watchdog=
+# With setsid (util-linux; not on macOS) each check runs as its own process group, so an
+# interrupted check is stopped as a whole: mutmut's worker processes can otherwise outlive
+# it, orphaned. Without it, only uv is signalled (it forwards the signal to mutmut).
+setsid=
+if command -v setsid >/dev/null 2>&1; then
+    setsid=setsid
+fi
+cleanup() {
+    # Interrupted mid-check: stop the running check too, not just this script.
+    if [ -n "$child" ]; then
+        if [ -n "$setsid" ]; then
+            kill -s TERM -- "-$child" 2>/dev/null || :
+        else
+            kill -TERM "$child" 2>/dev/null || :
+        fi
+        wait "$child" 2>/dev/null || :
+    fi
+    [ -z "$watchdog" ] || kill -TERM "$watchdog" 2>/dev/null || :
+    # mutmut's worker processes can outlive it by a moment, still writing into the
+    # snapshot, so a single rm -rf can lose that race.
+    for _ in 1 2 3 4 5; do
+        rm -rf "$tmp" 2>/dev/null || :
+        [ -e "$tmp" ] || break
+        sleep 1
+    done
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# git does not stop its hook when git itself is killed; without this the checks would
+# keep running orphaned. Once git exits we are reparented, so poll our current parent
+# pid and signal ourselves when it changes (`kill -0 $PPID` is not enough: a killed git
+# lingers as a zombie until its own parent reaps it). Skipped if ps can't report it.
+parent_pid() {
+    ps -o ppid= -p $$ 2>/dev/null | tr -d ' '
+}
+if [ "$(parent_pid)" = "$PPID" ]; then
+    (while [ "$(parent_pid)" = "$PPID" ]; do sleep 1; done; kill -TERM $$ 2>/dev/null) \
+        </dev/null >/dev/null 2>&1 &
+    watchdog=$!
+fi
+
+export PYTHONDONTWRITEBYTECODE=1
+
+# Runs as a background job that we `wait` for: a trapped signal interrupts `wait` at once,
+# whereas a foreground child would delay the trap until it exited. `exec` makes the job's
+# pid uv's own -- and, with setsid (which does not fork here: a background job of a
+# non-interactive shell is no process-group leader), the new group's id -- so cleanup()
+# can signal it. --locked never rewrites the snapshot's
+# uv.lock. TMPDIR: uv leaves a lock file keyed by project path there, i.e. a new one per
+# push; the test suite's tmp_path dirs land there too.
+run() {
+    # shellcheck disable=SC2086 # $setsid: empty, or one word
+    (exec $setsid env TMPDIR="$tmp" UV_PROJECT_ENVIRONMENT="$env_dir" \
+        "$UV" run --quiet --locked --project "$tmp/tree" -- "$@") &
+    child=$!
+    status=0
+    wait "$child" || status=$?
+    child=
+    return "$status"
+}
+
+failed=0
+for commit in $commits; do
+    short=$(git --git-dir="$git_dir" rev-parse --short "$commit")
+    cd "$tmp"
+    rm -rf "$tmp/tree"
+    mkdir "$tmp/tree"
+    git --git-dir="$git_dir" archive --format=tar "$commit" | tar -x -C "$tmp/tree"
+    cd "$tmp/tree"
+
+    # Fail fast (uv.lock out of date with pyproject.toml, no network on first use, ...)
+    # instead of reporting a mutmut failure.
+    if ! run python -c ''; then
+        echo "pre-push: $short: could not set up the uv environment from its pyproject.toml/uv.lock (see above; if uv.lock is stale: uv lock, then commit it)." >&2
+        failed=1
+        continue
+    fi
+
+    echo "pre-push: $short: mutation testing (mutmut, a few minutes; git push --no-verify skips)..." >&2
+    if ! run mutmut run >"$tmp/mutmut.out" 2>&1; then
+        # Its progress spinner is \r-separated; keep only the last lines.
+        tr '\r' '\n' <"$tmp/mutmut.out" | tail -n 30 >&2
+        echo "pre-push: $short: mutmut run failed (see above) -- reproduce with: uv run mutmut run" >&2
+        failed=1
+        continue
+    fi
+    run mutmut results --all true >"$tmp/results.txt"
+    total=$(grep -c ': ' "$tmp/results.txt" || :)
+    if [ "$total" -eq 0 ]; then
+        echo "pre-push: $short: mutmut produced no mutants -- check [tool.mutmut] source_paths." >&2
+        failed=1
+        continue
+    fi
+    # `results` prints "    <mutant>: <status>". Caught: killed, timeout, caught by type check.
+    grep -v -e ': killed$' -e ': timeout$' -e ': caught by type check$' "$tmp/results.txt" \
+        | sed 's/^ *//' >"$tmp/bad.txt" || :
+    grep ': timeout$' "$tmp/results.txt" | sed 's/^ */pre-push: note: /' >&2 || :
+    if [ -s "$tmp/bad.txt" ]; then
+        bad=$(wc -l <"$tmp/bad.txt" | tr -d ' ')
+        echo "pre-push: $short: $bad of $total mutants not killed (mutation score below 100%):" >&2
+        # The first few as diffs, the rest by name.
+        head -n 10 "$tmp/bad.txt" | while IFS= read -r line; do
+            run mutmut show "${line%%: *}" >&2 || echo "$line" >&2
+        done
+        if [ "$bad" -gt 10 ]; then
+            echo "... and $((bad - 10)) more:" >&2
+            tail -n +11 "$tmp/bad.txt" >&2
+        fi
+        echo "pre-push: $short: kill them with tests (uv run mutmut run && uv run mutmut results; uv run mutmut browse)," >&2
+        echo "  or, for one that provably cannot change behaviour, exempt it (see README, Development)." >&2
+        failed=1
+    else
+        echo "pre-push: $short: all $total mutants caught." >&2
+    fi
+done
+
+if [ "$failed" -ne 0 ]; then
+    echo "pre-push: push aborted (checked the pushed commits; bypass with --no-verify)." >&2
+    exit 1
+fi

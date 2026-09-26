@@ -81,7 +81,7 @@ def build(ctx: lib.RowContext) -> tuple[None, list[dict[str, Any]]]:
             unit_id="none",
             thresholds_steps=lib.no_thresholds("blue"),
             overrides=[
-                lib.override_by_name("Exporters down", [("thresholds", lib.thresholds([(0, "green"), (1, "red")]))]),
+                lib.override_by_name("Exporters down", [("thresholds", lib.thresholds([(None, "green"), (1, "red")]))]),
             ],
             description="GPUs: number of GPU series matching the current job/instance/gpu selection. "
             'Exporters down: count of `up{job=~"$job", instance=~"$instance"} == 0` '
@@ -124,11 +124,10 @@ def build(ctx: lib.RowContext) -> tuple[None, list[dict[str, Any]]]:
             0,
             5,
             4,
-            [lib.target(f"avg(DCGM_FI_DEV_GPU_UTIL{f})", ref_id="A", instant=False)],
+            [lib.target(f"avg(DCGM_FI_DEV_GPU_UTIL{f})", ref_id="A")],
             unit_id="percent",
-            thresholds_steps=lib.thresholds([(0, "blue"), (50, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (50, "green")]),
             graph_mode="area",
-            reduce_calc="lastNotNull",
         )
     )
     panels.append(
@@ -139,11 +138,10 @@ def build(ctx: lib.RowContext) -> tuple[None, list[dict[str, Any]]]:
             0,
             5,
             4,
-            [lib.target(f"avg(DCGM_FI_PROF_PIPE_TENSOR_ACTIVE{f})", ref_id="A", instant=False)],
+            [lib.target(f"avg(DCGM_FI_PROF_PIPE_TENSOR_ACTIVE{f})", ref_id="A")],
             unit_id="percentunit",
-            thresholds_steps=lib.thresholds([(0, "blue"), (0.3, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (0.3, "green")]),
             graph_mode="area",
-            reduce_calc="lastNotNull",
         )
     )
     panels.append(
@@ -154,11 +152,10 @@ def build(ctx: lib.RowContext) -> tuple[None, list[dict[str, Any]]]:
             0,
             4,
             4,
-            [lib.target(f"avg(DCGM_FI_DEV_GPU_TEMP{f})", ref_id="A", instant=False)],
+            [lib.target(f"avg(DCGM_FI_DEV_GPU_TEMP{f})", ref_id="A")],
             unit_id="celsius",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             graph_mode="area",
-            reduce_calc="lastNotNull",
             description="Neutral/informational rather than thresholded: a fixed absolute-Celsius threshold "
             "(e.g. green/75/85) is not portable across GPU models on a mixed fleet -- several "
             "datacenter GPUs run normally in the 75-85C+ band at full load, nowhere near their "
@@ -174,11 +171,10 @@ def build(ctx: lib.RowContext) -> tuple[None, list[dict[str, Any]]]:
             4,
             5,
             4,
-            [lib.target(f"sum(DCGM_FI_DEV_POWER_USAGE{f})", ref_id="A", instant=False)],
+            [lib.target(f"sum(DCGM_FI_DEV_POWER_USAGE{f})", ref_id="A")],
             unit_id="watt",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             graph_mode="area",
-            reduce_calc="lastNotNull",
             description="Neutral gray -- informational sum, not a fault signal by itself.",
         )
     )
@@ -199,7 +195,7 @@ def build(ctx: lib.RowContext) -> tuple[None, list[dict[str, Any]]]:
                 )
             ],
             unit_id="none",
-            thresholds_steps=lib.thresholds([(0, "green"), (1, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (1, "red")]),
             description="Count of distinct XID events in dcgm-exporter's trailing 5-minute window, summed "
             "across every selected GPU, excluding the self-healing/informational codes "
             f"({xid_benign_pattern} -- see the Reliability row's XID reference table) that the "
@@ -266,7 +262,7 @@ def build(ctx: lib.RowContext) -> tuple[None, list[dict[str, Any]]]:
                 ),
             ],
             unit_id="none",
-            thresholds_steps=lib.thresholds([(0, "green"), (1, "yellow"), (2, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (1, "yellow"), (2, "red")]),
             overrides=[
                 lib.override_by_name("At power cap", [("thresholds", lib.no_thresholds("blue"))]),
             ],
@@ -298,7 +294,7 @@ def build(ctx: lib.RowContext) -> tuple[None, list[dict[str, Any]]]:
                 )
             ],
             unit_id="none",
-            thresholds_steps=lib.thresholds([(0, "green"), (1, "yellow"), (2, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (1, "yellow"), (2, "red")]),
             description="Power: fraction of enforced limit (a true ratio -- Watts is a ratio scale). "
             "Temp: plain Celsius margin, SLOWDOWN_TEMP - GPU_TEMP < 10C -- "
             "an earlier formula divided (GPU_TEMP+273.15) by (SLOWDOWN_TEMP+273.15) to get a "

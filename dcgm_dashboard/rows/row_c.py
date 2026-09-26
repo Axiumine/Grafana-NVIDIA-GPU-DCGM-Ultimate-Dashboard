@@ -152,7 +152,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 "Temp (C)",
                 [
                     ("unit", lib.unit("celsius")),
-                    ("thresholds", lib.no_thresholds("gray")),
+                    ("thresholds", lib.no_thresholds()),
                     ("custom.width", 100),
                 ],
             ),

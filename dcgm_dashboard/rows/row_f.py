@@ -144,6 +144,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 lib.target(lib.per_gpu(f"DCGM_FI_DEV_MAX_MEM_CLOCK{f}"), legend=f"Max Mem Clock · {std}", ref_id="E"),
             ],
             unit_id="rotmhz",
+            thresholds_steps=lib.no_thresholds(),
             overrides=[
                 lib.override_by_regex(
                     r"^Max ",
@@ -179,8 +180,9 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     # -- Sub-row 2 (relative y=9, h=8) --------------------------------------
     bit_targets = []
     bit_overrides = []
+    bit_ref_ids = lib._excel_ref_ids(len(lib.CLOCK_EVENT_BITS))
     for i, (bit_name, (bit_value, nature)) in enumerate(lib.CLOCK_EVENT_BITS.items()):
-        ref_id = lib._excel_ref_ids(11)[i]
+        ref_id = bit_ref_ids[i]
         expr = lib.clock_event_bit_expr(f"DCGM_FI_DEV_CLOCKS_EVENT_REASONS{f}", bit_value)
         bit_targets.append(lib.target(lib.per_gpu(expr), legend=f"{bit_name} · {std}", ref_id=ref_id))
         bit_color = BIT_COLOR_OVERRIDE.get(bit_name, lib.CLOCK_EVENT_COLOR[nature])
@@ -244,13 +246,14 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     )
 
     # -- Sub-row 3 (relative y=17, h=8) --------------------------------------
+    throttle_ns_ref_ids = lib._excel_ref_ids(len(THROTTLE_NS_FIELDS))
     throttle_targets = [
         lib.target(
             lib.per_gpu(f"rate({field}{f}[$__rate_interval])/1e9"),
             legend=f"{legend} · {std}",
-            ref_id=rid,
+            ref_id=throttle_ns_ref_ids[idx],
         )
-        for rid, (field, legend) in zip(lib._excel_ref_ids(len(THROTTLE_NS_FIELDS)), THROTTLE_NS_FIELDS, strict=True)
+        for idx, (field, legend) in enumerate(THROTTLE_NS_FIELDS)
     ]
     throttle_ns_overrides = []
     for _field, legend in THROTTLE_NS_FIELDS:
@@ -272,8 +275,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            stacked=False,
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             overrides=throttle_ns_overrides,
             legend_mode="table",
             legend_placement="right",
@@ -317,15 +319,14 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             "not a fault.",
         )
     )
+    fault_ref_ids = lib._excel_ref_ids(len(FAULT_VIOLATION_FIELDS))
     fault_targets = [
         lib.target(
             lib.per_gpu(f"rate({field}{f}[$__rate_interval])/1e9"),
             legend=f"{legend} · {std}",
-            ref_id=rid,
+            ref_id=fault_ref_ids[idx],
         )
-        for rid, (field, legend) in zip(
-            lib._excel_ref_ids(len(FAULT_VIOLATION_FIELDS)), FAULT_VIOLATION_FIELDS, strict=True
-        )
+        for idx, (field, legend) in enumerate(FAULT_VIOLATION_FIELDS)
     ]
     panels.append(
         lib.timeseries(
@@ -339,7 +340,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "green"), (1e-6, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (1e-6, "red")]),
             overrides=[
                 lib.override_by_regex(r"^" + re.escape(label) + r" ", [("color", lib.fixed_color(color))])
                 for label, color in FAULT_INFO_ONLY.items()
@@ -362,10 +363,10 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         lib.target(
             f"sum(increase({field}{f}[$__range]))/1e9/$__range_s",
             legend=legend,
-            ref_id=rid,
+            ref_id=throttle_ns_ref_ids[idx],
             instant=True,
         )
-        for rid, (field, legend) in zip(lib._excel_ref_ids(len(THROTTLE_NS_FIELDS)), THROTTLE_NS_FIELDS, strict=True)
+        for idx, (field, legend) in enumerate(THROTTLE_NS_FIELDS)
     ]
     panels.append(
         lib.bargauge(
@@ -379,16 +380,14 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "green"), (0.05, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (0.05, "red")]),
             color={"mode": "thresholds"},
-            display_mode="gradient",
-            orientation="horizontal",
             overrides=[
                 lib.override_by_name("Sync Boost", [("color", lib.fixed_color("gray"))]),
                 lib.override_by_name(
                     "SW Power Cap",
                     [
-                        ("thresholds", lib.thresholds([(0, "green"), (0.05, "yellow"), (0.5, "orange")])),
+                        ("thresholds", lib.thresholds([(None, "green"), (0.05, "yellow"), (0.5, "orange")])),
                     ],
                 ),
             ],
@@ -421,7 +420,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 )
             ],
             unit_id="percentunit",
-            thresholds_steps=lib.thresholds([(0, "blue"), (0.3, "green")]),
+            thresholds_steps=lib.thresholds([(None, "blue"), (0.3, "green")]),
             text_mode="value",
             graph_mode="area",
             description="Completeness gap: fraction of the selected range this GPU spent in a "

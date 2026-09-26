@@ -104,7 +104,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="bytes",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Cumulative PCIe bytes moved over the dashboard's selected time range, computed with "
             "increase() over DCGM's ever-growing PCIe TX/RX byte counters -- a counter-based "
             "cross-check of panel 64's instantaneous rate (the two should agree: this stat "
@@ -237,7 +237,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="short",
-            thresholds_steps=lib.thresholds([(0, "green"), (1, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (1, "red")]),
             description="increase() of the cumulative PCIe link-layer replay (retry) counter and AER "
             "correctable-error counter over each windowed interval -- never the raw ever-growing "
             "counter with a static threshold, which could only turn red once and then stay red "

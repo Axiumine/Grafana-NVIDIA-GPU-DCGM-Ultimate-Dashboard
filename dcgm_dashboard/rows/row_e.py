@@ -49,7 +49,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="percentunit",
             min_=0,
             max_=1,
-            thresholds_steps=lib.thresholds([(0, "green"), (0.85, "yellow"), (0.95, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (0.85, "yellow"), (0.95, "red")]),
             description="Used/(Total-Reserved), DCGM's own pre-computed ratio (avoids re-deriving the "
             "VRAM% formula by hand in PromQL, and avoids the ~5% error of dividing by raw "
             "Total instead of the allocatable Total-Reserved). Yellow at 85% is 'plan "
@@ -73,7 +73,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="mbytes",
             stacked=True,
             min_=0,
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             overrides=[
                 # Minor visual fix: Grafana's default palette assigned "Free" a muddy
                 # olive/brown that read like a warning block despite free VRAM being a
@@ -141,7 +141,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             ],
             unit_id="bytes",
             min_=0,
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="BAR1 is the PCIe-addressable aperture into VRAM (separate and usually much "
             "smaller than the framebuffer itself) that lets the CPU or peer devices map GPU "
             "memory directly. Only relevant for GPUDirect RDMA/Storage and other large "
@@ -167,7 +167,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 )
             ],
             unit_id="none",
-            thresholds_steps=lib.thresholds([(0, "green"), (1, "yellow")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (1, "yellow")]),
             description="Counts GPUs holding more than 10% of VRAM while averaging 0% GPU utilization "
             "over the last 15 minutes -- the classic symptom of a leaked CUDA context, a "
             "crashed-but-not-cleaned-up process, or a forgotten idle notebook kernel still "

@@ -8,10 +8,13 @@ import runpy
 import socket
 import sys
 import threading
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import import_local
 import pytest
+
+from tools import import_local
 
 
 class _ImportHandler(BaseHTTPRequestHandler):
@@ -21,7 +24,14 @@ class _ImportHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length) if length else b""
         body = json.loads(raw.decode("utf-8")) if raw else None
-        self.server.requests.append({"path": self.path, "auth": self.headers.get("Authorization"), "body": body})
+        self.server.requests.append(
+            {
+                "path": self.path,
+                "auth": self.headers.get("Authorization"),
+                "content_type": self.headers.get("Content-Type"),
+                "body": body,
+            }
+        )
 
         status, resp_body = self.server.responder(body)
         payload = json.dumps(resp_body).encode("utf-8")
@@ -52,6 +62,24 @@ def stub_server():
 
 def _base_url(server: ThreadingHTTPServer) -> str:
     return f"http://127.0.0.1:{server.server_port}"
+
+
+class _RawStatusHandler(BaseHTTPRequestHandler):
+    """Ignores the request body and always replies 500 with a fixed, non-UTF-8 body."""
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length:
+            self.rfile.read(length)
+        body = b"boom: \xff\xfe not valid utf-8"
+        self.send_response(500)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args: object) -> None:
+        """Silence BaseHTTPRequestHandler's default per-request stderr logging."""
 
 
 def test_main_imports_successfully_and_prints_url(stub_server, tmp_path, monkeypatch, capsys):
@@ -94,6 +122,7 @@ def test_main_imports_successfully_and_prints_url(stub_server, tmp_path, monkeyp
     req = stub_server.requests[-1]
     assert req["path"] == "/api/dashboards/import"
     assert req["auth"] == "Basic " + base64.b64encode(b"alice:s3cret").decode()
+    assert req["content_type"] == "application/json"
 
     body = req["body"]
     assert body["overwrite"] is True
@@ -208,6 +237,111 @@ def test_main_reports_error_when_grafana_is_unreachable(tmp_path, monkeypatch, c
 
     assert exit_code == 1
     assert f"ERROR: could not reach {grafana_url}/api/dashboards/import:" in err
+
+
+def test_main_help_shows_full_docstring_and_uid_suffix_help_verbatim(monkeypatch, capsys):
+    """--help's description is the raw module docstring, unwrapped rather than
+    re-flowed (RawDescriptionHelpFormatter over the module's own __doc__), and
+    --uid-suffix's help text is passed through unmodified."""
+    monkeypatch.setattr(sys, "argv", ["import_local.py", "--help"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        import_local.main()
+    out = capsys.readouterr().out
+
+    assert exc_info.value.code == 0
+    assert import_local.__doc__ in out
+    assert "append -<suffix> to the dashboard uid before importing" in out
+
+
+def test_main_uses_documented_defaults_when_flags_are_omitted(tmp_path, monkeypatch, capsys):
+    """Without --grafana-url/--datasource-uid/--user/--password, the request is built
+    from DEFAULT_GRAFANA_URL, DEFAULT_DATASOURCE_UID, admin/admin basic auth and a 30s
+    timeout -- checked without touching the network by intercepting urlopen itself
+    before it would connect."""
+    json_path = tmp_path / "dash.json"
+    json_path.write_text(json.dumps({"uid": "d", "panels": []}))
+
+    captured = {}
+    missing = object()
+
+    def fake_urlopen(req, timeout=missing):
+        captured["url"] = req.full_url
+        captured["auth"] = req.get_header("Authorization")
+        captured["timeout"] = timeout
+        captured["datasource_uid"] = json.loads(req.data.decode("utf-8"))["inputs"][0]["value"]
+        raise urllib.error.URLError("no server")
+
+    monkeypatch.setattr(import_local.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "argv", ["import_local.py", str(json_path)])
+
+    exit_code = import_local.main()
+    err = capsys.readouterr().err
+
+    assert exit_code == 1
+    assert captured["url"] == f"{import_local.DEFAULT_GRAFANA_URL}/api/dashboards/import"
+    assert captured["auth"] == "Basic " + base64.b64encode(b"admin:admin").decode()
+    assert captured["datasource_uid"] == import_local.DEFAULT_DATASOURCE_UID
+    assert captured["timeout"] == 30
+    assert f"ERROR: could not reach {import_local.DEFAULT_GRAFANA_URL}/api/dashboards/import:" in err
+
+
+def test_main_strips_only_a_trailing_slash_from_grafana_url(stub_server, tmp_path, monkeypatch, capsys):
+    """A single trailing "/" is stripped from --grafana-url (rstrip("/")) when building
+    both the request URL and the printed dashboard URL -- not arbitrary trailing
+    whitespace, and not any character sharing the "/" end of the strip set."""
+    stub_server.responder = lambda _body: (200, {"uid": "trail-uid"})
+    json_path = tmp_path / "dash.json"
+    json_path.write_text(json.dumps({"uid": "trail", "panels": []}))
+    base_url = _base_url(stub_server)
+    grafana_url = base_url + "/gafanaX/"
+
+    monkeypatch.setattr(sys, "argv", ["import_local.py", str(json_path), "--grafana-url", grafana_url])
+    exit_code = import_local.main()
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert stub_server.requests[-1]["path"] == "/gafanaX/api/dashboards/import"
+    assert out == f"imported OK: uid=trail-uid slug=None\nURL: {base_url}/gafanaX/d/trail-uid\n"
+
+
+def test_main_prefers_response_uid_over_dashboard_uid(stub_server, tmp_path, monkeypatch, capsys):
+    """When the import response carries its own "uid", that value is used for the
+    printed uid/URL -- it is not silently replaced by the dashboard's own "uid"."""
+    stub_server.responder = lambda _body: (200, {"uid": "server-assigned"})
+    json_path = tmp_path / "dash.json"
+    json_path.write_text(json.dumps({"uid": "local-only", "panels": []}))
+    base_url = _base_url(stub_server)
+
+    monkeypatch.setattr(sys, "argv", ["import_local.py", str(json_path), "--grafana-url", base_url])
+    exit_code = import_local.main()
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert out == f"imported OK: uid=server-assigned slug=None\nURL: {base_url}/d/server-assigned\n"
+
+
+def test_main_replaces_invalid_utf8_bytes_in_http_error_body(tmp_path, monkeypatch, capsys):
+    """A non-UTF-8 HTTP error body is decoded with errors="replace" (one U+FFFD per bad
+    byte), not with a made-up or wrong-case error-handler name that would raise
+    LookupError instead of returning a clean exit code."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _RawStatusHandler)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+    thread.start()
+    try:
+        json_path = tmp_path / "dash.json"
+        json_path.write_text(json.dumps({"panels": []}))
+        monkeypatch.setattr(sys, "argv", ["import_local.py", str(json_path), "--grafana-url", _base_url(server)])
+
+        exit_code = import_local.main()
+        err = capsys.readouterr().err
+
+        assert exit_code == 1
+        assert "boom: �� not valid utf-8" in err
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_dunder_main_exits_zero_on_successful_import(stub_server, tmp_path, monkeypatch):

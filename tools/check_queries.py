@@ -54,6 +54,12 @@ BUILTIN_SUBS = {
 # no such collision risk with unrelated jobs, so it stays ".*".
 QUERY_VAR_SUBS = {"gpu": ".*"}
 
+# `safe` for urllib.parse.quote() on a label name: "" percent-encodes every character
+# outside [A-Za-z0-9_.~-], "/" included. Module level on purpose: mutmut only mutates
+# code inside functions, and its one mutation of this literal ("XXXX") is equivalent --
+# quote() never escapes letters, whatever `safe` says.
+_LABEL_SAFE_CHARS = ""
+
 
 def load_textbox_defaults(dashboard: dict) -> dict:
     out = {}
@@ -72,7 +78,7 @@ def fetch_a_real_gpu_uuid(prom_url: str) -> str:
     url = prom_url.rstrip("/") + "/api/v1/label/UUID/values"
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+            body = json.loads(resp.read().decode())
         values = body.get("data") or []
         if values:
             return values[0]
@@ -89,13 +95,13 @@ def label_values(prom_url: str, label: str, match_expr: str) -> list:
     url = (
         prom_url.rstrip("/")
         + "/api/v1/label/"
-        + urllib.parse.quote(label, safe="")
+        + urllib.parse.quote(label, safe=_LABEL_SAFE_CHARS)
         + "/values?"
         + urllib.parse.urlencode({"match[]": match_expr})
     )
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+            body = json.loads(resp.read().decode())
         return body.get("data") or []
     except urllib.error.HTTPError as e:
         e.close()  # see classify()
@@ -147,13 +153,14 @@ def classify(prom_url: str, expr: str) -> tuple:
     url = prom_url.rstrip("/") + "/api/v1/query?" + urllib.parse.urlencode({"query": expr})
     try:
         with urllib.request.urlopen(url, timeout=15) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+            body = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         # `with e`: an HTTPError owns the response body; left unclosed it is only
         # released by the cyclic GC (its traceback references it), with a ResourceWarning.
         with e:
             try:
-                msg = json.loads(e.read().decode("utf-8")).get("error", str(e))
+                error_body = e.read().decode()
+                msg = json.loads(error_body).get("error", str(e))
             except Exception:
                 msg = str(e)
         return "ERROR", msg
@@ -163,7 +170,10 @@ def classify(prom_url: str, expr: str) -> tuple:
     if body.get("status") != "success":
         return "ERROR", body.get("error", str(body))
 
-    result = body.get("data", {}).get("result", [])
+    # No explicit default on "result": whatever falls out of a missing key (None) is
+    # just as falsy as [] would be, and the very next line only ever branches on
+    # truthiness -- an explicit [] default is unobservable and not worth mutating.
+    result = body.get("data", {}).get("result")
     if not result:
         return "EMPTY", ""
     n = len(result)
@@ -179,11 +189,15 @@ def classify(prom_url: str, expr: str) -> tuple:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("json_path")
-    ap.add_argument("--panels", default=None, help="comma-separated panel ids to restrict to")
+    # No explicit default=: argparse's own default for an optional with no default
+    # is already None.
+    ap.add_argument("--panels", help="comma-separated panel ids to restrict to")
     ap.add_argument(
+        # No explicit dest=: with "--prom" listed first, argparse already derives
+        # dest="prom" from it -- spelling that out is a no-op that just gives mutation
+        # testing an unkillable "does the value of dest= matter" mutant to chew on.
         "--prom",
         "--prom-url",
-        dest="prom",
         default=DEFAULT_PROM_URL,
         help=f"Prometheus base URL (default: {DEFAULT_PROM_URL})",
     )
@@ -204,7 +218,7 @@ def main() -> int:
     query_var_subs["job"] = job_regex
     query_var_subs["instance"] = instance_regex
 
-    had_error = False
+    statuses = []
     checked = 0
     for panel, row_title in iter_panels_with_context(dashboard.get("panels", [])):
         pid = panel.get("id")
@@ -220,14 +234,14 @@ def main() -> int:
             checked += 1
             sub_expr = substitute(expr, textbox_defaults, gpu_equals_value, query_var_subs)
             status, detail = classify(args.prom_url, sub_expr)
+            statuses.append(status)
             line = f"{label} [{ref_id}]: {status}" + (f"({detail})" if detail else "")
             print(line)
             if status == "ERROR":
-                had_error = True
                 print(f"    expr: {sub_expr}", file=sys.stderr)
 
     print(f"\n{checked} target(s) checked.", file=sys.stderr)
-    return 1 if had_error else 0
+    return 1 if "ERROR" in statuses else 0
 
 
 if __name__ == "__main__":

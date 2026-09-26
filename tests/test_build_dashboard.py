@@ -94,6 +94,65 @@ def test_build_dashboard_matches_committed_json(project_root: pathlib.Path) -> N
     assert built == committed
 
 
+def test_main_help_text_pins_docstring_and_option_help(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    """--help must show the module docstring verbatim (raw, not rewrapped -- pins both
+    description=__doc__ and formatter_class=RawDescriptionHelpFormatter) plus the exact
+    --out/--rows help strings. COLUMNS is fixed so argparse's line-wrapping of the options
+    section is deterministic regardless of the terminal this test runs in."""
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setattr(sys, "argv", ["build_dashboard.py", "--help"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        build_dashboard.main()
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == (
+        "usage: build_dashboard.py [-h] [--out OUT] [--rows ROWS]\n"
+        "\n"
+        'Build the "NVIDIA GPU -- DCGM Ultimate Dashboard" Grafana JSON.\n'
+        "\n"
+        "Usage:\n"
+        "    uv run build_dashboard.py [--out PATH] [--rows a,b,c,...]\n"
+        "\n"
+        'Default output: "nvidia-dcgm-dashboard.json" next to this script.\n'
+        "Row selection lets a row author build a dashboard containing only their row(s)\n"
+        "plus row A (top strip) for fast local iteration -- see dcgm_dashboard/CONVENTIONS.md.\n"
+        "\n"
+        "Output is deterministic: stable panel ids (fixed, not auto-assigned -- see\n"
+        "dcgm_dashboard/CONVENTIONS.md's id-range table), stable key order (json.dump\n"
+        "with sort_keys=True), pretty-printed with indent=2.\n"
+        "\n"
+        "options:\n"
+        "  -h, --help   show this help message and exit\n"
+        "  --out OUT    output JSON path\n"
+        "  --rows ROWS  comma-separated row letters to include, in ['a', 'b', 'c', 'd',\n"
+        "               'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'] order regardless of the\n"
+        "               order given (default: all)\n"
+    )
+
+
+def test_main_writes_pretty_printed_json_with_sorted_top_level_keys(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins the exact bytes main() writes (json.dump(..., indent=2, sort_keys=True)), not just
+    the parsed value -- catches indent/sort_keys being dropped, flipped, or changed."""
+    out_path = tmp_path / "out.json"
+    monkeypatch.setattr(sys, "argv", ["build_dashboard.py", "--rows", "a", "--out", str(out_path)])
+
+    assert build_dashboard.main() == 0
+
+    raw = out_path.read_text()
+    assert raw == json.dumps(build_dashboard.build_dashboard(["a"]), indent=2, sort_keys=True) + "\n"
+    # indent=2 -> multi-line, two-space-indented; sort_keys=True -> "__inputs" (first
+    # alphabetically) is the first key, well before "annotations".
+    lines = raw.splitlines()
+    assert lines[0] == "{"
+    assert lines[1] == '  "__inputs": ['
+    assert raw.index('"__inputs"') < raw.index('"annotations"')
+
+
 def test_main_default_writes_full_dashboard(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     out_path = tmp_path / "out.json"
     monkeypatch.setattr(sys, "argv", ["build_dashboard.py", "--out", str(out_path)])

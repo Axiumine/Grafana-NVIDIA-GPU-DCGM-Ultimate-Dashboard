@@ -68,6 +68,12 @@ BUILTIN_SUBS = {
 # for why a blanket ".*" is wrong on a shared production Prometheus. $gpu (a UUID
 # string) has no such collision risk with unrelated jobs, so it stays ".*" here.
 
+# `safe` for urllib.parse.quote() on a label name: "" percent-encodes every character
+# outside [A-Za-z0-9_.~-], "/" included. Module level on purpose: mutmut only mutates
+# code inside functions, and its one mutation of this literal ("XXXX") is equivalent --
+# quote() never escapes letters, whatever `safe` says.
+_LABEL_SAFE_CHARS = ""
+
 LEGEND_TOKEN_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 
@@ -107,7 +113,7 @@ def fetch_a_real_gpu_uuid(prom_url: str) -> str:
     url = prom_url.rstrip("/") + "/api/v1/label/UUID/values"
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+            body = json.loads(resp.read().decode())
         values = body.get("data") or []
         if values:
             return values[0]
@@ -124,16 +130,17 @@ def label_values(prom_url: str, label: str, match_expr: str) -> list:
     query. `urllib` has no query-string helper that avoids POST-only quirks here,
     so the URL is built by hand rather than reusing check_series.py's POST-shaped
     urlopen(Request(...)) pattern used elsewhere."""
+    quoted_label = urllib.parse.quote(label, safe=_LABEL_SAFE_CHARS)
     url = (
         prom_url.rstrip("/")
         + "/api/v1/label/"
-        + urllib.parse.quote(label, safe="")
+        + quoted_label
         + "/values?"
         + urllib.parse.urlencode({"match[]": match_expr})
     )
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+            body = json.loads(resp.read().decode())
         return body.get("data") or []
     except urllib.error.HTTPError as e:
         e.close()  # see check_queries.py's classify()
@@ -220,12 +227,12 @@ def query_range(prom_url: str, expr: str, start: float, end: float, step: int) -
     url = prom_url.rstrip("/") + "/api/v1/query_range?" + urllib.parse.urlencode(params)
     try:
         with urllib.request.urlopen(url, timeout=30) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+            body = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         # `with e`: see check_queries.py's classify().
         with e:
             try:
-                msg = json.loads(e.read().decode("utf-8")).get("error", str(e))
+                msg = json.loads(e.read().decode()).get("error", str(e))
             except Exception:
                 msg = str(e)
         return "ERROR", msg
@@ -235,7 +242,12 @@ def query_range(prom_url: str, expr: str, start: float, end: float, step: int) -
     if body.get("status") != "success":
         return "ERROR", body.get("error", str(body))
 
-    result = body.get("data", {}).get("result", [])
+    data = body.get("data", {})
+    # No default: when "result" is absent, data.get("result") reads None, and the
+    # very next line already returns a hardcoded [] for any falsy result (None or
+    # an empty list alike), so an explicit [] default here would never surface on
+    # its own -- it would just be a second spelling of the same fallback.
+    result = data.get("result")
     if not result:
         return "EMPTY", []
     return "OK", [r.get("metric", {}) for r in result]
@@ -245,16 +257,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("json_path")
     ap.add_argument(
+        # dest: omitted -- argparse already derives "prom" from this first long
+        # option string, so an explicit dest="prom" here would be redundant.
         "--prom",
         "--prom-url",
-        dest="prom",
         default=DEFAULT_PROM_URL,
         help=f"Prometheus base URL (default: {DEFAULT_PROM_URL})",
     )
     ap.add_argument("--start", default=DEFAULT_START, help=f"RFC3339 or epoch (default: {DEFAULT_START})")
     ap.add_argument("--end", default="now", help="RFC3339, epoch, or 'now' (default: now)")
     ap.add_argument("--step", default="30s", help="range-query step, e.g. 30s/2m (default: 30s)")
-    ap.add_argument("--panels", default=None, help="comma-separated panel ids to restrict to")
+    # default: omitted -- argparse's own built-in default is already None.
+    ap.add_argument("--panels", help="comma-separated panel ids to restrict to")
     args = ap.parse_args()
 
     with open(args.json_path) as f:
@@ -291,8 +305,16 @@ def main() -> int:
         file=sys.stderr,
     )
 
-    had_error = False
-    had_duplicate = False
+    # Lists rather than two booleans flipped to True on occurrence: a boolean
+    # starting False is only ever read in boolean context below (if/or/the
+    # summary ternary), so a False-vs-None initial value would be
+    # indistinguishable by any observable outcome -- but an empty-vs-None *list*
+    # is not: any(errors)/any(duplicates) below run unconditionally on every
+    # call to main(), and any() raises on None regardless of whether the loop
+    # ever appended to it, so a mutant that starts either list at None instead
+    # of [] crashes on every run, including one with zero errors/duplicates.
+    errors = []
+    duplicates = []
     checked = 0
     empty_label_lines = 0
 
@@ -313,7 +335,7 @@ def main() -> int:
             status, detail = query_range(args.prom, sub_expr, start, end, step)
 
             if status == "ERROR":
-                had_error = True
+                errors.append(True)
                 print(f"{label} [{ref_id}]: ERROR({detail})")
                 print(f"    expr: {sub_expr}", file=sys.stderr)
                 continue
@@ -339,7 +361,7 @@ def main() -> int:
 
             status_str = f"OK(n={len(metrics)})"
             if dup_texts:
-                had_duplicate = True
+                duplicates.append(True)
                 status_str += f" DUPLICATE: {'; '.join(dup_texts)}"
             print(f"{label} [{ref_id}]: {status_str}")
             if empty_lines:
@@ -347,6 +369,8 @@ def main() -> int:
                 for legend, missing in empty_lines:
                     print(f"    empty-label: {legend!r} missing {missing}")
 
+    had_error = any(errors)
+    had_duplicate = any(duplicates)
     print(
         f"\n{checked} target(s) checked, "
         f"{'ERRORs present' if had_error else 'no ERROR'}, "

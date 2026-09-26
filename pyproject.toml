@@ -13,6 +13,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    "mutmut>=3.8.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.9",
@@ -71,8 +72,11 @@ known-first-party = ["dcgm_dashboard"]
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-# "." for build_dashboard / dcgm_dashboard, "tools" so tests can `import lint_dashboard` etc.
-pythonpath = [".", "tools"]
+# "." for build_dashboard / dcgm_dashboard / tools. Tests import the scripts as
+# `from tools import lint_dashboard` (tools/ is a namespace package), not bare
+# `import lint_dashboard`: mutmut maps each mutant to the module name derived from its
+# path, and silently reports every tools/ mutant as untested if the names differ.
+pythonpath = ["."]
 addopts = ["--strict-config", "--strict-markers", "-ra", "--cov", "--cov-report=term-missing:skip-covered"]
 xfail_strict = true
 filterwarnings = ["error"]
@@ -88,3 +92,24 @@ include_namespace_packages = true
 fail_under = 100
 show_missing = true
 skip_covered = true
+
+# mutmut mutation testing: copies the sources below into mutants/ (gitignored), mutates
+# them one change at a time, and reruns the tests that cover each mutated function. A
+# mutant the suite still passes against ("survived") is behaviour no test pins down.
+# Every mutant must be killed; README's "Development" section covers the exemption for
+# one that provably can't be. Enforced by .githooks/pre-push -- a full run takes
+# minutes, too slow for pre-commit.
+#
+#   uv run mutmut run               # mutate + test everything (incremental on reruns)
+#   uv run mutmut results           # list surviving mutants
+#   uv run mutmut show <mutant>     # diff of one mutant
+#   uv run mutmut browse            # interactive TUI over the results
+[tool.mutmut]
+source_paths = ["build_dashboard.py", "dcgm_dashboard/", "tools/"]
+# Data files the tests read next to the sources (the golden dashboard JSON, and the
+# CSV lint_dashboard.py falls back to). tests/, pyproject.toml and uv.lock are copied
+# by default.
+also_copy = ["custom-counters.csv", "nvidia-dcgm-dashboard.json"]
+# The runs only execute the tests covering each mutant, so the 100% coverage gate
+# in addopts would fail every one of them -- counting each mutant as killed.
+pytest_add_cli_args = ["--no-cov", "-p", "no:cacheprovider"]

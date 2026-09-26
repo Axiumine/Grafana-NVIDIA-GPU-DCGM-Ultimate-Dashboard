@@ -192,7 +192,10 @@ def main() -> int:
         json.dump(dashboard, f, indent=2, sort_keys=True)
         f.write("\n")
 
-    panel_count = sum(1 + len(p.get("panels", [])) if p.get("type") == "row" else 1 for p in dashboard["panels"])
+    # Only row panels carry a non-empty "panels" key (see lib.row()/build_layout);
+    # every other panel's default [] makes this equivalent to the old
+    # type-conditional formula without the redundant branch.
+    panel_count = sum(1 + len(p.get("panels", [])) for p in dashboard["panels"])
     print(f"wrote {out_path} ({panel_count} panels, rows: {','.join(selected_rows)})")
     return 0
 

@@ -217,7 +217,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="none",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Chip-to-chip (Grace-Blackwell superchip) link error counters. 0/no-data on this "
             "discrete workstation GPU -- expected. Back-to-back replay errors are broken out "
             "separately from isolated ones because a burst pattern (many replays in immediate "
@@ -240,7 +240,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             4,
             [lib.target(lib.per_gpu(f"DCGM_FI_DEV_C2C_LINK_POWER_STATUS{f}"), ref_id="A", instant=True)],
             unit_id="none",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Chip-to-chip link power state -- informational (no NVIDIA-published good/bad enum "
             "to map against, hence no color threshold). 0/absent without a C2C superchip link. "
             "This panel's id (95) is intentionally out of numeric sequence between 88 and 89 -- "
@@ -331,7 +331,6 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         value_renames=[None, "Max Slices", "Attributes", "GI Info", "CI Info"],
         join_mode="inner",  # inner join: a GPU missing from the gated anchor frame is dropped entirely
         join_field="mig_key",  # composite UUID/GPU_I_ID key -- see _mig_key() above
-        overrides=[],
         description="MIG (Multi-Instance GPU) inventory, gated on MIG mode actually being enabled: the "
         "anchor query is `DCGM_FI_DEV_MIG_MODE == 1` inner-joined with the rest, so a GPU with "
         "MIG off (this workstation GPU has no MIG capability at all -- MIG_MAX_SLICES=0) simply "
@@ -481,7 +480,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             lib.override_by_name(
                 name,
                 [
-                    ("thresholds", lib.thresholds([(0, "green"), (0.001, "red")])),
+                    ("thresholds", lib.thresholds([(None, "green"), (0.001, "red")])),
                     ("custom.cellOptions", {"type": "color-background"}),
                 ],
             )

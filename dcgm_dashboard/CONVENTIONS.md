@@ -19,7 +19,8 @@ def build(ctx: lib.RowContext) -> tuple[dict | None, list[dict]]:
     return row_def, panels
 ```
 
-- `row_def`: `lib.row(id, title, collapsed=False, repeat=None)`, or `None` for row A only
+- `row_def`: `lib.row(id, title, collapsed=<bool>, repeat=None)` (`collapsed` is
+  required, no default), or `None` for row A only
   (row A has no row-panel wrapper -- its tiles are top-level panels).
 - `panels`: a flat list of panel dicts built with `lib.stat`/`lib.gauge`/`lib.timeseries`/
   etc. **gridPos.y is relative**, not absolute:
@@ -76,8 +77,11 @@ across any row of tiles.
 ## Helpers in `lib.py` (see its docstrings for full signatures)
 
 - `lib.ds_ref()` -- datasource ref, `{"type":"prometheus","uid":"${DS_PROMETHEUS}"}`.
-- `lib.target(expr, legend=None, ref_id="A", instant=False, hide=False, fmt="time_series")`
-  and `lib.make_targets([{...}, ...])` for auto-lettered refIds.
+- `lib.target(expr, *, legend=None, ref_id, instant=False, hide=False, fmt="time_series")`
+  -- `ref_id` is required (keyword-only, no default): every call site assigns one
+  deliberately, since a target's refId is what a table join or override keys off.
+  Use `lib.make_targets([{...}, ...])` instead for auto-lettered refIds on a
+  multi-target panel.
 - `lib.per_gpu(expr, agg="max", extra=())` -- **every per-GPU range query goes through
   this helper.** See the "Series identity / driver upgrades" gotcha below for what it
   fixes and `lib.GPU_ID_LABELS` for the exact label set; `lib.per_gpu()`'s own
@@ -92,8 +96,20 @@ across any row of tiles.
   CSV label-type field as a column uses `latest_per_gpu()`; every other per-GPU query
   uses `per_gpu()`.**
 - Panel builders: `stat`, `gauge`, `bargauge`, `timeseries`, `state_timeline`,
-  `status_history`, `table`, `heatmap`, `histogram`, `text`, `row`.
-- `lib.thresholds([(None,"green"),(75,"yellow"),(85,"red")])` / `lib.no_thresholds(color)`.
+  `status_history`, `table`, `heatmap`, `histogram`, `text`, `row`. `unit_id` and
+  `thresholds_steps` are required (keyword-only, no default) on `stat`/`gauge`/
+  `bargauge`/`timeseries` (`gauge` also requires `min_`/`max_`); `heatmap`/`histogram`
+  require `unit_id` only (they take no `thresholds_steps`: `histogram` always uses
+  `no_thresholds()`, `heatmap` sets none) -- every call site in this codebase already
+  computes and passes them explicitly, so a
+  panel that forgets one is almost certainly a bug, not a legitimate "use the default"
+  case; `table`'s `unit_id` keeps its `"none"` default (few table panels care about a
+  unit). `lib.row(panel_id, title, *, collapsed, repeat=None)` -- `collapsed` is
+  likewise required: it's a deliberate, documented-per-row choice (see the id table
+  above), never an incidental default.
+- `lib.thresholds([(None,"green"),(75,"yellow"),(85,"red")])` -- the first step's value
+  must be written as `None` (Grafana's base step never carries one); passing a number
+  there raises `ValueError` instead of silently discarding it. `lib.no_thresholds(color)`.
 - Value mappings: `lib.value_mapping([(val,text,color_or_None), ...])`,
   `lib.range_mapping(frm,to,text,color)`, `lib.special_mapping(match,text,color)`.
 - Overrides: `lib.override_by_name(field, [(id, value), ...])`, `lib.override_by_regex(...)`.

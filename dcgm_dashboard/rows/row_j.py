@@ -59,7 +59,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
     nvdec_targets = [
         lib.target(lib.per_gpu(f"DCGM_FI_PROF_NVDEC_UTIL_{i}_RATIO{f}"), legend=f"NVDEC{i} · {std}", ref_id=rid)
-        for i, rid in zip(range(8), lib._excel_ref_ids(8), strict=True)
+        for i, rid in enumerate(lib._excel_ref_ids(8))
     ]
     panels.append(
         lib.timeseries(
@@ -88,7 +88,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
     nvjpg_targets = [
         lib.target(lib.per_gpu(f"DCGM_FI_PROF_NVJPG_UTIL_{i}_RATIO{f}"), legend=f"NVJPG{i} · {std}", ref_id=rid)
-        for i, rid in zip(range(8), lib._excel_ref_ids(8), strict=True)
+        for i, rid in enumerate(lib._excel_ref_ids(8))
     ]
     panels.append(
         lib.timeseries(
@@ -154,7 +154,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 lib.target(lib.per_gpu(f"DCGM_FI_PROF_PEERMEM_CACHE_MISS{f}"), legend=f"Peer miss · {std}", ref_id="D"),
             ],
             unit_id="percent",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Host-memory and peer-GPU-memory cache hit/miss rates from DCGM's profiling counters. "
             "Only meaningful on Grace-Hopper/Grace-Blackwell C2C superchips or multi-GPU "
             "peer-access workloads -- reads 0/absent on a plain PCIe-attached single GPU like this "

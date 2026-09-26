@@ -83,6 +83,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="watt",
+            thresholds_steps=lib.no_thresholds(),
             overrides=[
                 lib.override_by_regex(
                     r"^(Min|Default|Current|Max|Enforced) Limit",
@@ -121,7 +122,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="watt",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Sanity-check overlay of NVML's 1-second-averaged power reading against its "
             "instantaneous sample. The two should track closely; a persistent, large gap "
             "between them points at a very spiky power-draw pattern (short bursts averaged "
@@ -168,7 +169,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="watt",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Cross-checks two independent ways DCGM reports the same quantity: TOTAL_ENERGY_"
             "CONSUMPTION is a cumulative millijoule counter, so rate(...) yields mJ/s; dividing "
             "by 1e3 (NOT 1e6) converts that to Watts. The two lines should track closely; a "
@@ -191,7 +192,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="kwatth",
             text_mode="value",
             graph_mode="area",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Total energy consumed by the selected GPU(s) over the dashboard's current time "
             "range. /3.6e9 converts millijoules to kWh. Informational -- there is no universal "
             "'good'/'bad' total, only trend-over-time and cost (see the two cost panels).",
@@ -216,7 +217,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             display_name="${currency}",
             text_mode="value_and_name",
             graph_mode="area",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Panel 52's energy (kWh) x the $energy_price textbox (price per kWh). The currency "
             "symbol comes from the $currency textbox via a panel displayName override -- "
             "confirmed interpolating correctly in this environment's Grafana 13.2.2. "
@@ -251,7 +252,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             display_name="${currency}/h",
             text_mode="value_and_name",
             graph_mode="area",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Instantaneous cost-per-hour AT the current power draw (kW x $/kWh), not an "
             "energy-integral like panel 53 -- if draw changes, this number changes immediately "
             "with it, it does not accumulate.",
@@ -275,7 +276,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             unit_id="watt",
             text_mode="value",
             graph_mode="area",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Total power currently being drawn by GPUs sitting at exactly 0% utilization. On a "
             "single idle workstation GPU a nonzero reading here is the normal idle baseline, not "
             "a fault -- the panel earns its keep at fleet scale, where it quantifies how much "

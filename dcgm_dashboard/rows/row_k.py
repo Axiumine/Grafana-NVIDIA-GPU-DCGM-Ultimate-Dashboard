@@ -142,7 +142,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="none",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="SBE = single-bit/correctable (the ECC engine fixed it transparently -- occasional "
             "nonzero is normal). DBE = double-bit/uncorrectable (any nonzero deserves attention). "
             "'Volatile' resets to 0 on every driver reload; 'aggregate' is the lifetime count.",
@@ -201,7 +201,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="none",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="The modern Ampere+ reliability signal: DCGM remaps a failing DRAM row to a spare "
             "row instead of retiring the whole page. Occasional 'Correctable' events are expected "
             "and self-healing. Any 'Uncorrectable' event is worth investigating -- spare capacity "
@@ -245,7 +245,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             color={"mode": "thresholds"},
             overrides=[
                 lib.override_by_name(
-                    "Banks: none left (critical)", [("thresholds", lib.thresholds([(0, "green"), (1, "red")]))]
+                    "Banks: none left (critical)", [("thresholds", lib.thresholds([(None, "green"), (1, "red")]))]
                 ),
             ],
             description="Counts of memory *banks* falling into each spare-row-availability bucket. 'High'/"
@@ -309,7 +309,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 lib.target(lib.per_gpu(f"DCGM_FI_DEV_RETIRED_PENDING{f}"), legend=f"{std} · Pending", ref_id="C"),
             ],
             unit_id="none",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="The pre-Ampere page-retirement mechanism, superseded by row-remap (panels 78-80) "
             "on Ampere and newer. Expect 0 or 'No data' on modern hardware -- that is healthy, "
             "not a monitoring gap.",
@@ -399,7 +399,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 )
             ],
             unit_id="none",
-            thresholds_steps=lib.thresholds([(0, "green"), (1, "red")]),
+            thresholds_steps=lib.thresholds([(None, "green"), (1, "red")]),
             description="Count of distinct XID events in dcgm-exporter's trailing 5-minute window, summed "
             "across every selected GPU, excluding the self-healing/informational codes "
             f"({xid_benign_pattern}) the XID reference table below colors green. Dense (always "

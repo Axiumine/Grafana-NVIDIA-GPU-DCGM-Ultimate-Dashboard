@@ -215,27 +215,29 @@ def unit(name: str) -> str:
 
 
 def _excel_ref_ids(n: int) -> list[str]:
-    """A, B, ..., Z, AA, AB, ... -- Grafana refIds are strings, any length is fine."""
+    """A, B, ..., Z, AA, AB, ... -- Grafana refIds are strings, any length is fine.
+
+    Bijective base-26: the digit-to-index adjustment (`x - 1`) is folded into the
+    divmod call itself rather than applied to its quotient, so each pass strictly
+    shrinks x toward 0 and the loop is guaranteed to terminate.
+    """
     letters = string.ascii_uppercase
     out = []
-    i = 0
-    while len(out) < n:
-        s = ""
-        x = i
-        while True:
-            s = letters[x % 26] + s
-            x = x // 26 - 1
-            if x < 0:
-                break
-        out.append(s)
-        i += 1
+    for i in range(n):
+        chars = []
+        x = i + 1
+        while x > 0:
+            x, rem = divmod(x - 1, 26)
+            chars.append(letters[rem])
+        out.append("".join(reversed(chars)))
     return out
 
 
 def target(
     expr: str,
+    *,
     legend: str | None = None,
-    ref_id: str = "A",
+    ref_id: str,
     instant: bool = False,
     hide: bool = False,
     fmt: str = "time_series",
@@ -247,7 +249,13 @@ def target(
     importing a dashboard with this field omitted from every target renders
     identically, including the 12-target GPU Inventory join.
     tools/lint_dashboard.py's datasource check treats a missing target datasource
-    as fine."""
+    as fine.
+
+    `ref_id` has no default: every call site in this codebase already assigns one
+    explicitly (a target's refId is meaningful -- it's what a table join or an
+    override keys off), so a caller that forgets it is almost certainly a bug, not
+    a legitimate "any letter will do" case. Multi-target panels should still prefer
+    `make_targets()`, which auto-assigns A, B, C, ... for you."""
     t: dict[str, Any] = {
         "expr": expr,
         "refId": ref_id,
@@ -286,12 +294,16 @@ def make_targets(specs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def thresholds(steps: Sequence[tuple[float | None, str]], mode: str = "absolute") -> dict[str, Any]:
-    """steps: [(None, 'green'), (75, 'yellow'), (85, 'red')] -- first value forced to None
-    (Grafana's base step) regardless of what's passed."""
-    out_steps = []
-    for i, (value, color) in enumerate(steps):
-        out_steps.append({"color": color, "value": None if i == 0 else value})
-    return {"mode": mode, "steps": out_steps}
+    """steps: [(None, 'green'), (75, 'yellow'), (85, 'red')] -- Grafana's base step
+    (the first one) carries no value, so `steps[0]`'s value must be written as the
+    literal `None` at the call site: passing a number there would silently be
+    discarded, so instead of masking that with a silent fix-up this raises."""
+    if steps and steps[0][0] is not None:
+        raise ValueError(
+            f"thresholds(): the first step's value must be None (Grafana's base step never "
+            f"carries one), got {steps[0][0]!r} -- write it as (None, {steps[0][1]!r})"
+        )
+    return {"mode": mode, "steps": [{"color": color, "value": value} for value, color in steps]}
 
 
 def no_thresholds(color: str = "gray") -> dict[str, Any]:
@@ -511,9 +523,10 @@ def _base_panel(
     w: int,
     h: int,
     targets: Sequence[dict[str, Any]] = (),
+    *,
     description: str = "",
-    unit_id: str = "none",
-    thresholds_steps: dict[str, Any] | None = None,
+    unit_id: str,
+    thresholds_steps: dict[str, Any],
     mappings: list[dict[str, Any]] | None = None,
     overrides: list[dict[str, Any]] | None = None,
     min_: float | None = None,
@@ -525,9 +538,14 @@ def _base_panel(
     display_name: str | None = None,
     no_value: str | None = None,
 ) -> dict[str, Any]:
+    """`unit_id`/`thresholds_steps` have no default: every one of this function's 7
+    call sites (all in this module) already computes and passes both explicitly, so
+    there is no "caller forgot it" case a default would legitimately serve -- see
+    `no_thresholds()`'s docstring ("Every panel in this dashboard should have either a
+    real threshold or an explicit informational-only one")."""
     defaults: dict[str, Any] = {
         "unit": unit(unit_id) if unit_id in UNITS else unit_id,
-        "thresholds": thresholds_steps if thresholds_steps is not None else no_thresholds(),
+        "thresholds": thresholds_steps,
     }
     if mappings:
         defaults["mappings"] = mappings
@@ -570,8 +588,9 @@ def stat(
     w: int,
     h: int,
     targets: Sequence[dict[str, Any]],
-    unit_id: str = "none",
-    thresholds_steps: dict[str, Any] | None = None,
+    *,
+    unit_id: str,
+    thresholds_steps: dict[str, Any],
     mappings: list[dict[str, Any]] | None = None,
     graph_mode: str = "none",
     color_mode: str = "value",
@@ -583,6 +602,9 @@ def stat(
     links: list[dict[str, Any]] | None = None,
     text_mode: str = "auto",
 ) -> dict[str, Any]:
+    """`unit_id`/`thresholds_steps` have no default: every call site in this codebase
+    already computes and passes both explicitly (see `lib.no_thresholds()`'s note that
+    every panel should carry a real or explicit no-op threshold)."""
     options = {
         "reduceOptions": {"calcs": [reduce_calc], "fields": "", "values": False},
         "orientation": "auto",
@@ -620,14 +642,18 @@ def gauge(
     w: int,
     h: int,
     targets: Sequence[dict[str, Any]],
-    unit_id: str = "percent",
-    min_: float = 0,
-    max_: float = 100,
-    thresholds_steps: dict[str, Any] | None = None,
+    *,
+    unit_id: str,
+    min_: float,
+    max_: float,
+    thresholds_steps: dict[str, Any],
     mappings: list[dict[str, Any]] | None = None,
     description: str = "",
     overrides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    """`unit_id`/`min_`/`max_`/`thresholds_steps` have no default: every call site in
+    this codebase already computes and passes all four explicitly (a gauge without an
+    explicit range/threshold is almost certainly a copy-paste bug, not intentional)."""
     options = {
         "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
         "orientation": "auto",
@@ -662,10 +688,11 @@ def bargauge(
     w: int,
     h: int,
     targets: Sequence[dict[str, Any]],
-    unit_id: str = "none",
+    *,
+    unit_id: str,
+    thresholds_steps: dict[str, Any],
     min_: float | None = None,
     max_: float | None = None,
-    thresholds_steps: dict[str, Any] | None = None,
     mappings: list[dict[str, Any]] | None = None,
     description: str = "",
     display_mode: str = "gradient",
@@ -673,6 +700,8 @@ def bargauge(
     overrides: list[dict[str, Any]] | None = None,
     color: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """`unit_id`/`thresholds_steps` have no default: every call site in this codebase
+    already computes and passes both explicitly."""
     options = {
         "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
         "orientation": orientation,
@@ -708,10 +737,11 @@ def timeseries(
     w: int,
     h: int,
     targets: Sequence[dict[str, Any]],
-    unit_id: str = "none",
+    *,
+    unit_id: str,
+    thresholds_steps: dict[str, Any],
     min_: float | None = None,
     max_: float | None = None,
-    thresholds_steps: dict[str, Any] | None = None,
     stacked: bool = False,
     description: str = "",
     overrides: list[dict[str, Any]] | None = None,
@@ -721,6 +751,8 @@ def timeseries(
     legend_sort_by: str | None = None,
     legend_sort_desc: bool = False,
 ) -> dict[str, Any]:
+    """`unit_id`/`thresholds_steps` have no default: every call site in this codebase
+    already computes and passes both explicitly."""
     custom: dict[str, Any] = {
         "drawStyle": "line",
         "lineWidth": 1,
@@ -859,7 +891,8 @@ def heatmap(
     h: int,
     targets: Sequence[dict[str, Any]],
     bucket_size: float,
-    unit_id: str = "none",
+    *,
+    unit_id: str,
     description: str = "",
     min_: float | None = None,
     max_: float | None = None,
@@ -870,7 +903,8 @@ def heatmap(
     client-side bucketer spreading a single repeated value into one fully-saturated
     band across the *entire* auto-detected range -- visually indistinguishable from
     'constantly at the max' at a glance. Pass the metric's real domain (e.g. 0-100 for
-    a percent field, 0-1 for percentunit)."""
+    a percent field, 0-1 for percentunit). `unit_id` has no default: every call site in
+    this codebase already passes it explicitly."""
     options = {
         "calculate": True,
         "calculation": {"xBuckets": {"mode": "size"}, "yBuckets": {"mode": "size", "value": str(bucket_size)}},
@@ -908,10 +942,13 @@ def histogram(
     w: int,
     h: int,
     targets: Sequence[dict[str, Any]],
-    unit_id: str = "none",
+    *,
+    unit_id: str,
     description: str = "",
 ) -> dict[str, Any]:
-    """Native 'histogram' panel type -- auto-bucketing, not the heatmap panel."""
+    """Native 'histogram' panel type -- auto-bucketing, not the heatmap panel.
+    `unit_id` has no default: every call site in this codebase already passes it
+    explicitly."""
     options = {"bucketOffset": 0, "legend": {"showLegend": True}}
     return _base_panel(
         panel_id,
@@ -1025,11 +1062,16 @@ def dashboard_link(title: str, url: str) -> dict[str, Any]:
 def row(
     panel_id: int,
     title: str,
-    collapsed: bool = False,
+    *,
+    collapsed: bool,
     repeat: str | None = None,
 ) -> dict[str, Any]:
     """A row panel skeleton. gridPos/panels are filled in by the layout engine
-    (see build_layout below) -- row modules never set gridPos.y themselves."""
+    (see build_layout below) -- row modules never set gridPos.y themselves.
+
+    `collapsed` has no default: every row module already states it explicitly (it's
+    a deliberate, documented-per-row choice -- see CONVENTIONS.md's id table -- not
+    an incidental one), so a caller that omits it is almost certainly a bug."""
     r: dict[str, Any] = {
         "id": panel_id,
         "title": title,
@@ -1388,7 +1430,7 @@ def build_layout(row_modules: Sequence[Any], ctx: RowContext | None = None) -> l
             cursor += row_height
             continue
 
-        row_def = copy.deepcopy(row_def)
+        row_def = dict(row_def)  # only top-level keys reassigned below (gridPos, panels), never nested
         _register_id(row_def["id"], row_def.get("title", ""))
         row_def["gridPos"] = {"x": 0, "y": cursor, "w": 24, "h": 1}
 

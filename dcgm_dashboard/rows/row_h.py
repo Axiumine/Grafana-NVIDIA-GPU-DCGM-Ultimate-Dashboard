@@ -67,7 +67,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="celsius",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             overrides=[
                 lib.override_by_regex(r"^Slowdown limit", [("custom.lineStyle", {"fill": "dash", "dash": [10, 10]})]),
                 lib.override_by_regex(r"^Shutdown limit", [("custom.lineStyle", {"fill": "dash", "dash": [10, 10]})]),
@@ -103,7 +103,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 ),
             ],
             unit_id="celsius",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             overrides=[
                 lib.override_by_regex(
                     r"^Mem max recommended", [("custom.lineStyle", {"fill": "dash", "dash": [10, 10]})]
@@ -166,7 +166,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             8,
             [lib.target(lib.per_gpu(f"DCGM_FI_DEV_FAN_SPEED{f}"), legend=std, ref_id="A")],
             unit_id="percent",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             description="Fan duty cycle (%). No `or vector(0)` fallback: PromQL's `or` unions series by "
             "label set rather than coalescing, so applying it directly to this fully-labeled "
             "per-GPU series would produce a second, label-less phantom 0% series alongside the "
@@ -188,7 +188,7 @@ def build(ctx: lib.RowContext) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 lib.target(lib.per_gpu(f"DCGM_FI_DEV_GPU_TEMP{f}"), legend=f"Temp · {std}", ref_id="B"),
             ],
             unit_id="percent",
-            thresholds_steps=lib.no_thresholds("gray"),
+            thresholds_steps=lib.no_thresholds(),
             overrides=[
                 lib.override_by_regex(
                     r"^Temp",

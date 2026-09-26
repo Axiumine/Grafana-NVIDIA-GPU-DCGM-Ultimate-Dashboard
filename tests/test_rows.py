@@ -119,7 +119,7 @@ def test_row_a_top_strip_is_wrapperless_with_absolute_y() -> None:
     exporters_down_props = _props(
         next(o for o in gpus_panel["fieldConfig"]["overrides"] if o["matcher"]["options"] == "Exporters down")
     )
-    assert exporters_down_props["thresholds"] == lib.thresholds([(0, "green"), (1, "red")])
+    assert exporters_down_props["thresholds"] == lib.thresholds([(None, "green"), (1, "red")])
 
     health_panel = next(p for p in panels if p["id"] == 8)
     assert health_panel["title"] == "Health"
@@ -226,7 +226,7 @@ def test_row_f_duty_cycle_bargauge_gives_power_cap_its_own_threshold() -> None:
     power_cap_props = _props(
         next(o for o in panel_98["fieldConfig"]["overrides"] if o["matcher"]["options"] == "SW Power Cap")
     )
-    assert power_cap_props["thresholds"] == lib.thresholds([(0, "green"), (0.05, "yellow"), (0.5, "orange")])
+    assert power_cap_props["thresholds"] == lib.thresholds([(None, "green"), (0.05, "yellow"), (0.5, "orange")])
 
     panel_99 = next(p for p in panels if p["id"] == 99)
     expr = panel_99["targets"][0]["expr"]

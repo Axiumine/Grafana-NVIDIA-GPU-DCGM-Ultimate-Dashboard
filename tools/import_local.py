@@ -26,12 +26,18 @@ import urllib.request
 
 DEFAULT_GRAFANA_URL = "http://127.0.0.1:3300"
 DEFAULT_DATASOURCE_UID = "prom-local"
+# Module level so mutmut (which only mutates code inside functions) can't flip their case --
+# urllib.request.Request.add_header() runs key.capitalize() on whatever we pass, so a
+# case-mutated literal here would still normalize to the same wire header name.
+CONTENT_TYPE_HEADER = "Content-Type"
+AUTHORIZATION_HEADER = "Authorization"
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("json_path")
-    ap.add_argument("--uid-suffix", default=None, help="append -<suffix> to the dashboard uid before importing")
+    # No explicit default=None: that's already argparse's own implicit default for an omitted optional.
+    ap.add_argument("--uid-suffix", help="append -<suffix> to the dashboard uid before importing")
     ap.add_argument("--grafana-url", default=DEFAULT_GRAFANA_URL)
     ap.add_argument("--datasource-uid", default=DEFAULT_DATASOURCE_UID)
     ap.add_argument("--user", default="admin")
@@ -62,18 +68,21 @@ def main() -> int:
     }
 
     url = args.grafana_url.rstrip("/") + "/api/dashboards/import"
-    body = json.dumps(payload).encode("utf-8")
+    body = json.dumps(payload).encode()
     auth = base64.b64encode(f"{args.user}:{args.password}".encode()).decode()
+    # No explicit method="POST": data is always set above, so Request.get_method() already resolves to POST.
     req = urllib.request.Request(
         url,
         data=body,
-        method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"},
+        headers={
+            CONTENT_TYPE_HEADER: "application/json",
+            AUTHORIZATION_HEADER: f"Basic {auth}",
+        },
     )
 
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            resp_body = json.loads(resp.read().decode("utf-8"))
+            resp_body = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         with e:  # see tools/check_queries.py's classify()
             detail = e.read().decode(errors="replace")
