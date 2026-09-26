@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Grafana-NVIDIA-GPU-DCGM-Ultimate-Dashboard** (676 symbols, 2312 relationships, 58 execution flows).
+This project is indexed by GitNexus as **Grafana-NVIDIA-GPU-DCGM-Ultimate-Dashboard**.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
